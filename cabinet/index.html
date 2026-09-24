@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>CTR Leads · вход</title>
+<style>
+:root{--bg:#F3F5F4;--panel:#FFFFFF;--ink:#16211D;--muted:#5D6B66;--line:#D5DDD9;--acc:#2FA37A;--err:#C0392B;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#0F1513;--panel:#18211E;--ink:#E6EEEA;--muted:#93A39C;--line:#2A3632;--acc:#3DBE8F;--err:#FF7B6B;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);
+ font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px 16px}
+form{width:100%;max-width:360px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px 24px;display:grid;gap:14px}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
+h1{font-size:20px;margin:0;text-wrap:balance}
+input[type=password]{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+input[type=password]:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+label.rem{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}
+button{font:inherit;font-weight:700;border:0;border-radius:999px;padding:10px 16px;background:var(--acc);color:#fff;cursor:pointer}
+button[disabled]{opacity:.6;cursor:wait}
+#msg{min-height:1.5em;margin:0;font-size:13px;color:var(--err)}
+</style></head><body>
+<form id="f" autocomplete="off">
+  <p class="eyebrow">CTR Leads · закрытый раздел</p>
+  <h1>Дашборды магазинов</h1>
+  <input type="password" id="pw" placeholder="Пароль" autofocus required>
+  <label class="rem"><input type="checkbox" id="rem" checked> Запомнить на этом устройстве</label>
+  <button id="go" type="submit">Открыть</button>
+  <p id="msg" role="alert"></p>
+</form>
+<script id="payload" type="application/octet-stream">yRCOqdtahBMdsA73sNsyda/XDhyknaFvT2fafceLaFftpq8AtjBHtG/r9UYFVlzFKwJs3f98QQOjizSLC1gKEAVMxDC0jN7CyoKidMCVEHn3cBFSAqYs/ONzf4l6uGrYfcgYUzpPoTv1cju8tbpky+hgEwIC4+42r5sPG1Mj6IOEgSaRq5ONt9DB4enBq94OzcNbsJDaPY/IylrtR4Egn9hQP7e+AdN8AxtvNB+L24B6+0uv6aJNU3y5yrFMln6HUMTwqIEWZOfZwjYn5JTxtfmGqxXl0AXL7tTrVxO6CI/DjeRzNPHTSRTiHoSRAIRq1a4+OaT9cihF/TjOAieFKlSca6hN/Wy2NXs1en7WmAUorJDP1wjtYjhxhJEgFX4Qam1BKE1nsG5IkLXNJuXYBMBltI3fHMB3caVN46CblpXP6KL/298McyeF60Slj1ngHnrCLGZTLuOE5IdUIntvGApOAaig1VWst6SE0y8xPZIUTg2aXycwS8U4LGstgkdwC3aI/fhtX6+N0iVt3owMXA9wPmYOZSsGXoJlZHz/35WZlFSqwwDnkftVyzGK9xir596+jmWIqXDz9GTZAeYWZiqQwYYlX2AzGXCPovihC/qZs3pmHTsb8TcNkYItb1EwmshAVX2BpX2cnj0cJplFfVnRFxfh8SjrtlQtpy0/kjlMIxX2rNeplBB2uY/Ur0oLVnDL1GJ9LSvi/jimVkRzvmEZdbpOOPKAogl4KTe6DKSOh2vqcxkTdraqQwBn+6s3qjzKIS4Cwsk+F3CVFkWd4a+8+HEU14J0skdTZyAI/BwG5zRdoSi1+e0H5h3ta7sto/qg8cCMpwuaguDxkDnmnrMgfUvvuEBNv7VdSb+QLii5mx720Z+O1YzoEUR+ChTs/sfWDMI9MnCGVDv9rQNIf0fG5RL+JNgmPoscQPrcPqJqmcyevo8yRfOHx+OlcKTBrT/iJ4ANEimVhh2w2aC0n1gdYh8gAmVBwYzAhKo9VmVZqU7U6HQRq6C8tYC00n26XNbLkqTX3ccNEQfzT0x4FARh+fDD0uDcNlyukHcGoKLGUG+6j4+f0zUeY82VdQU4o3x3hK/STH+sdFXYV29sb58i/18sWEy3Fux8r+QQzZ54jNodDhkpa0KiHtFgGkBFUFJiZjnZcCHGfiBAGsEwSyGkn0Vt2AM6WcwwExXkhlYejtJ7hoEzrMCkezgUss0ErxJcL9rsWlMxCXd2RvxWmxAKtk/EeYhY45SOi+stvqBRE1dhyySwuVSNczmyDNpJA8oR5LKA5ERPRsjqWvRUINacXT5VPep4nO9eTm3OAc73gLylqZeRc+HPRmKBga6hFOOzO3eC0Okx/k9/kMEZrLpuvvnVaXdodQHhh8eaogfTF36R7Bucw89jo01yKpOEOdZvZiPlKE0eJg45WMUuD+0w2/kFqLMR4Pkk3dRVxCUsshkrox479LBUmfP10GuIlzdf/b68TVs/lMQ/sx0mC7U+dmnGeHT8vrNW7cz+TsLpcK0D/YdX6IPUaA+MSO/qFqG2oGLiDYz2Sy69OUytWaQG1j/jdmIUp7AX+uuZhdGbLMnhVNqKyfev67JecKosrLDZhB6gZml3TiMLllyP787gSlVxfVKOqlxM6HMlzSjwM+2CB1gfsuUkdHPCq0XE89DJgGgjpC45Zx4FVHXcxhlQAwE32tOyE7/i/DbcDODe0uwQ7KhEIHzr2cQV2Hwlf62kWojKJZMQ9PJ8Ej6uI6HTzEfqIX9uwsKrVnjGmYc09Dyha38mVcdLnEui</script>
+<script>
+(function(){
+var SALT='93c8304d3b3163e69e5657634fd6458d', ITER=600000, LS='ctrleads-cabinet-key-v1';
+var b64=function(s){var b=atob(s),u=new Uint8Array(b.length);for(var i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
+var hex=function(h){var u=new Uint8Array(h.length/2);for(var i=0;i<u.length;i++)u[i]=parseInt(h.substr(i*2,2),16);return u;};
+var data=b64(document.getElementById('payload').textContent.trim());
+var msg=document.getElementById('msg'), go=document.getElementById('go');
+function lsGet(){try{return localStorage.getItem(LS);}catch(e){return null;}}
+function lsSet(v){try{v?localStorage.setItem(LS,v):localStorage.removeItem(LS);}catch(e){}}
+async function open(raw,remember){
+  var k=await crypto.subtle.importKey('raw',raw,'AES-GCM',false,['decrypt']);
+  var plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:data.slice(0,12)},k,data.slice(12));
+  var text=await new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  if(remember){var s='';var r=new Uint8Array(raw);for(var i=0;i<r.length;i++)s+=String.fromCharCode(r[i]);lsSet(btoa(s));}
+  document.open();document.write(text);document.close();
+}
+var saved=lsGet();
+if(saved){open(b64(saved),false).catch(function(){lsSet(null);});}
+document.getElementById('f').addEventListener('submit',async function(e){
+  e.preventDefault();msg.textContent='';go.disabled=true;go.textContent='Открываю…';
+  try{
+    var base=await crypto.subtle.importKey('raw',new TextEncoder().encode(document.getElementById('pw').value),'PBKDF2',false,['deriveBits']);
+    var bits=await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:hex(SALT),iterations:ITER},base,256);
+    await open(bits,document.getElementById('rem').checked);
+  }catch(err){msg.textContent='Неверный пароль. Проверьте раскладку и попробуйте ещё раз.';go.disabled=false;go.textContent='Открыть';}
+});
+})();
+</script>
+</body></html>
