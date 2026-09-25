@@ -6,20 +6,30 @@
   python3 tools/private_page.py decrypt  cabinet/<папка>/index.html  расшифровка.html
 
 Пароль берётся из переменной окружения CABINET_PASSWORD (в git его нет).
-Все страницы используют одну соль (cabinet/salt.txt), поэтому галочка
-«Запомнить на этом устройстве» открывает сразу все страницы кабинета.
+По умолчанию все страницы используют одну соль (cabinet/salt.txt) и,
+соответственно, один пароль на весь кабинет — галочка «Запомнить на этом
+устройстве» открывает их разом. Если рядом с назначением (в папке
+cabinet/<папка>/) лежит свой salt.txt — используется он, и тогда эта
+страница требует СВОЙ отдельный пароль, отличный от общего кабинета
+(создать такую соль: python3 -c "import os;print(os.urandom(16).hex())"
+> cabinet/<папка>/salt.txt).
 Схема: gzip → AES-256-GCM, ключ PBKDF2-SHA256 (600 000 итераций)."""
 import base64, gzip, hashlib, html, os, re, sys
 from pathlib import Path
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 ROOT = Path(__file__).resolve().parent.parent
-SALT_FILE = ROOT / 'cabinet' / 'salt.txt'
+DEFAULT_SALT_FILE = ROOT / 'cabinet' / 'salt.txt'
 ITER = 600_000
 
 
-def key(password):
-    salt = bytes.fromhex(SALT_FILE.read_text().strip())
+def salt_file_for(page_path):
+    own = Path(page_path).resolve().parent / 'salt.txt'
+    return own if own.exists() else DEFAULT_SALT_FILE
+
+
+def key(password, salt_file):
+    salt = bytes.fromhex(Path(salt_file).read_text().strip())
     return hashlib.pbkdf2_hmac('sha256', password.encode(), salt, ITER, 32)
 
 
@@ -87,23 +97,25 @@ document.getElementById('f').addEventListener('submit',async function(e){
 
 def encrypt(src, dst, title):
     pw = os.environ['CABINET_PASSWORD']
+    Path(dst).parent.mkdir(parents=True, exist_ok=True)
+    salt_file = salt_file_for(dst)
     data = gzip.compress(Path(src).read_bytes(), 9)
     iv = os.urandom(12)
-    blob = iv + AESGCM(key(pw)).encrypt(iv, data, None)
+    blob = iv + AESGCM(key(pw, salt_file)).encrypt(iv, data, None)
     out = (LOADER.replace('__TITLE__', html.escape(title))
-           .replace('__SALT__', SALT_FILE.read_text().strip())
+           .replace('__SALT__', salt_file.read_text().strip())
            .replace('__ITER__', str(ITER))
            .replace('__PAYLOAD__', base64.b64encode(blob).decode()))
-    Path(dst).parent.mkdir(parents=True, exist_ok=True)
     Path(dst).write_text(out, encoding='utf-8')
-    print(f'{dst}: {len(out)/1e6:.1f} МБ')
+    print(f'{dst}: {len(out)/1e6:.1f} МБ (соль: {salt_file.relative_to(ROOT)})')
 
 
 def decrypt(src, dst):
     pw = os.environ['CABINET_PASSWORD']
+    salt_file = salt_file_for(src)
     m = re.search(r'id="payload" type="application/octet-stream">([^<]+)<', Path(src).read_text(encoding='utf-8'))
     blob = base64.b64decode(m.group(1))
-    Path(dst).write_bytes(gzip.decompress(AESGCM(key(pw)).decrypt(blob[:12], blob[12:], None)))
+    Path(dst).write_bytes(gzip.decompress(AESGCM(key(pw, salt_file)).decrypt(blob[:12], blob[12:], None)))
     print(f'{dst}: расшифровано')
 
 
