@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<script>/* CTRLeads демо: без сервера, данные вымышленные */
+(function(){
+var FIX = Date.UTC(2026, 9, 23, 6, 0, 0), RD = Date;
+class DemoDate extends RD { constructor(...a){ if (a.length) super(...a); else super(FIX); } static now(){ return FIX; } }
+window.Date = DemoDate;
+var JK = 'ctrDemoJournal.v1', J0 = {"dates": [{"date": "2026-10-20", "comments": {"i1": "Поставка 120 шт в Хоругвино", "general": "Заказали отчёт «Аналитика категорий» за 28 дней"}}, {"date": "2026-10-18", "comments": {"i2": "Ставка 12 → 14 ₽"}}, {"date": "2026-10-14", "comments": {"general": "Старт осенней акции на пледы (−7%)", "i1": "Цена 1490 → 1390 ₽ в акции"}}, {"date": "2026-10-07", "comments": {"i3": "Новые фото в карточке, обложка 3:4"}}, {"date": "2026-10-01", "comments": {"general": "Себестоимость обновлена с 01.09 (+4%)"}}], "products": [{"id": "general", "sku": "", "name": "Общий комментарий"}, {"id": "i1", "sku": "NH-PLD-150", "name": "Плед флисовый 150×200, графит"}, {"id": "i2", "sku": "NH-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт"}, {"id": "i3", "sku": "NH-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин"}]};
+function jget(){ try{ var s = localStorage.getItem(JK); if (s) return JSON.parse(s); }catch(e){} return JSON.parse(JSON.stringify(J0)); }
+function jset(j){ try{ localStorage.setItem(JK, JSON.stringify(j)); }catch(e){} }
+function japply(j, op){
+  var k = op.op || 'comment';
+  function day(d){ var x = j.dates.find(function(r){ return r.date === d; });
+    if (!x){ x = {date: d, comments: {}}; j.dates.push(x); j.dates.sort(function(a,b){ return b.date.localeCompare(a.date); }); } return x; }
+  if (k === 'comment'){ var it = op.item || op.product, t = String(op.text || '').trim();
+    if (t) day(op.date).comments[it] = t; else { var x = j.dates.find(function(r){ return r.date === op.date; }); if (x) delete x.comments[it]; } }
+  else if (k === 'date') day(op.date);
+  else if (k === 'delete_date') j.dates = j.dates.filter(function(r){ return r.date !== op.date; });
+  else if (k === 'item'){ if (op.id === 'general') return; var p = j.products.find(function(r){ return r.id === op.id; });
+    if (p){ p.sku = op.sku || ''; p.name = op.name || ''; } else j.products.push({id: op.id, sku: op.sku || '', name: op.name || ''}); }
+  else if (k === 'delete_item'){ j.products = j.products.filter(function(r){ return r.id !== op.id; });
+    j.dates.forEach(function(r){ delete r.comments[op.id]; }); }
+}
+window.__demoToast = function(text){
+  try{ var d = document.getElementById('demoToast');
+    if (!d){ d = document.createElement('div'); d.id = 'demoToast';
+      d.style.cssText = 'position:fixed;left:50%;bottom:58px;transform:translateX(-50%);z-index:9999;max-width:min(92vw,520px);'
+        + 'background:#1D1D23;color:#F5F5FA;border:1px solid #7B61FF;border-radius:10px;padding:10px 14px;font:13px/1.4 Inter,Arial,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.35)';
+      document.body.appendChild(d); }
+    d.textContent = text; d.style.display = 'block'; clearTimeout(d._t); d._t = setTimeout(function(){ d.style.display = 'none'; }, 4200);
+  }catch(e){}
+};
+function resp(obj, status){ return Promise.resolve(new Response(JSON.stringify(obj), {status: status || 200, headers: {'Content-Type': 'application/json'}})); }
+var END = '2026-10-22', PRESETS = [1, 7, 14, 30];
+function days(a, b){ return Math.round((RD.parse(b + 'T00:00:00Z') - RD.parse(a + 'T00:00:00Z')) / 864e5) + 1; }
+function preset(q){
+  var n = days(q.get('from'), q.get('to')), best = PRESETS.reduce(function(a, p){ return Math.abs(p - n) < Math.abs(a - n) ? p : a; }, 7);
+  var exact = q.get('to') === END && best === n;
+  if (exact && q.get('cto')){ var c1 = new RD(RD.parse(q.get('from') + 'T00:00:00Z') - n * 864e5).toISOString().slice(0, 10);
+    exact = q.get('cfrom') === c1 && days(q.get('cfrom'), q.get('cto')) === n; }
+  if (!exact) __demoToast('В демо данные есть за «Вчера», 7, 14 и 30 дней до 22.10.2026 — показан ближайший период (' + best + ' дн.).');
+  return best;
+}
+window.__demoXlsx = function(qs){ var q = new URLSearchParams(qs); return 'x/wb/rnp-' + preset(q) + '.xlsx'; };
+var realFetch = window.fetch;
+window.fetch = function(u, o){
+  var s = String(u && u.url || u), m = (o && o.method || 'GET').toUpperCase();
+  if (s.indexOf('/api/') !== 0) return realFetch.apply(this, arguments);
+  var path = s.split('?')[0], q = new URLSearchParams(s.split('?')[1] || '');
+  if (path === '/api/comments'){
+    var j = jget();
+    if (m === 'POST'){ var b = {}; try{ b = JSON.parse(o.body || '{}'); }catch(e){}
+      (b.ops || [b]).forEach(function(op){ japply(j, op); }); jset(j); return resp({ok: true, state: j}); }
+    return resp(j);
+  }
+  var A = window.__DEMO_API;
+  if (path === '/api/rnp' && A) return resp(A.rnp[preset(q) + '-' + (q.get('group') || 'sku') + '-' + (q.get('all') || '0')]);
+  if (path === '/api/dash' && A) return resp(A.dash[String(preset(q))]);
+  if (path === '/api/note') return resp({ok: true});
+  __demoToast('Это демо: загрузка файлов и сохранение на сервер отключены — данные уже заполнены.');
+  return resp({error: 'демо: загрузка отключена'}, 400);
+};
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P&L и план</title>
+<style>
+:root{
+  --bg:#f6f7f9;--panel:#fff;--ink:#16181d;--muted:#667085;--line:#e4e7ec;--soft:#f2f4f7;
+  --accent:#2f6fed;--accent-soft:#e8f0fe;--good:#12805c;--bad:#c4320a;--plan:#9db8f5;
+  --warn-bg:#fff6e5;--warn-ink:#8a5300;--input:#fffbea;--input-line:#f2d675;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#101216;--panel:#181b21;--ink:#e8eaee;--muted:#98a2b3;--line:#2a2f38;--soft:#20242c;
+  --accent:#6f9dff;--accent-soft:#1d2a45;--good:#3ccb92;--bad:#ff7a59;--plan:#3d5a99;
+  --warn-bg:#3a2a0e;--warn-ink:#ffcf7a;--input:#2b2612;--input-line:#6b5a1d;}}
+:root[data-theme="dark"]{
+  --bg:#101216;--panel:#181b21;--ink:#e8eaee;--muted:#98a2b3;--line:#2a2f38;--soft:#20242c;
+  --accent:#6f9dff;--accent-soft:#1d2a45;--good:#3ccb92;--bad:#ff7a59;--plan:#3d5a99;
+  --warn-bg:#3a2a0e;--warn-ink:#ffcf7a;--input:#2b2612;--input-line:#6b5a1d;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+.wrap{max-width:1320px;margin:0 auto;padding:20px 16px 48px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
+h1{font-size:22px;margin:0}
+h2{font-size:17px;margin:0 0 4px}
+h3{font-size:15px;margin:18px 0 6px}
+.sub{color:var(--muted);font-size:13px}
+.btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:6px 10px;cursor:pointer;font:inherit}
+.btn:hover{border-color:var(--accent)}
+.btn.on{background:var(--accent-soft);border-color:var(--accent)}
+nav.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+section.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:10px;margin-bottom:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.card .k{color:var(--muted);font-size:12px}
+.card .v{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.card .h{color:var(--muted);font-size:12px;margin-top:2px}
+.insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:10px;margin:12px 0}
+.insight{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;padding:10px 12px;background:var(--panel)}
+.insight.bad{border-left-color:var(--bad)}
+.insight.good{border-left-color:var(--good)}
+.insight b{display:block;margin-bottom:2px}
+.warn{background:var(--warn-bg);color:var(--warn-ink);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px}
+.warn ul{margin:4px 0 0;padding-left:18px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--panel);z-index:1}
+thead th{color:var(--muted);font-weight:600;font-size:12px;background:var(--panel);vertical-align:bottom}
+tr.total td{font-weight:700;background:var(--soft)}
+tr.sub td:first-child{padding-left:22px;color:var(--muted)}
+tr.pct td{color:var(--muted);font-size:12px}
+tr.sec td{font-weight:700;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.03em;background:var(--panel);border-bottom:none;padding-top:14px}
+td.plan,th.plan{background:color-mix(in srgb,var(--accent-soft) 55%,transparent)}
+tr.total td.plan{background:color-mix(in srgb,var(--accent-soft) 85%,var(--soft))}
+td.q,th.q{border-left:2px solid var(--line)}
+td.dim,th.dim{color:var(--muted)}
+.neg{color:var(--bad)}
+.pos{color:var(--good)}
+.share{display:block;color:var(--muted);font-size:11px;font-weight:400}
+input.num{width:100%;min-width:72px;border:1px solid var(--input-line);background:var(--input);color:var(--ink);border-radius:6px;padding:4px 6px;text-align:right;font:inherit;font-variant-numeric:tabular-nums}
+input.num:focus{outline:2px solid var(--accent);border-color:transparent}
+input.num:disabled{background:transparent;border-color:transparent;color:var(--muted)}
+input[type=range]{width:100%}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px}
+.chart svg{width:100%;height:auto;display:block}
+.legend{display:flex;flex-wrap:wrap;gap:14px;color:var(--muted);font-size:12px;margin-top:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.note{color:var(--muted);font-size:12px;margin-top:8px}
+.hidden{display:none}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px}
+select{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:5px 8px;font:inherit}
+ol.need{margin:6px 0 0;padding-left:20px}
+ol.need li{margin:3px 0}
+.formula{font-size:12px;color:var(--muted);background:var(--soft);border-radius:8px;padding:8px 10px;margin-top:10px;line-height:1.6}
+.slider{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,2fr) 64px;gap:10px;align-items:center;margin:6px 0}
+.slider output{text-align:right;font-variant-numeric:tabular-nums}
+.tag{display:inline-block;font-size:11px;border-radius:6px;padding:1px 6px;background:var(--soft);color:var(--muted);margin-left:4px}
+.tag.bad{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
+.tag.good{background:color-mix(in srgb,var(--good) 15%,transparent);color:var(--good)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1 id="title">P&L и план</h1>
+    <div class="sub" id="subtitle"></div>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <button class="btn" id="sharesBtn" type="button" title="Доля каждой строки от доходов">Доли от доходов</button>
+    <button class="btn" id="deltaBtn" type="button" title="Изменение к предыдущему месяцу">Отклонение к прошлому месяцу</button>
+    <button class="btn" id="themeBtn" type="button">Тема</button>
+  </div>
+</header>
+
+<div id="warnings"></div>
+
+<nav class="tabs" id="tabs">
+  <button class="btn on" data-tab="overview" type="button">Обзор</button>
+  <button class="btn" data-tab="month" type="button">P&L по месяцам</button>
+  <button class="btn" data-tab="sprint" type="button">План спринта</button>
+  <button class="btn" data-tab="daily" type="button">План по дням</button>
+  <button class="btn" data-tab="funnel" type="button">Воронка и реклама</button>
+  <button class="btn" data-tab="unit" type="button">Юнит-экономика</button>
+  <button class="btn" data-tab="whatif" type="button">Безубыточность и «что если»</button>
+  <button class="btn" data-tab="week" type="button">P&L по неделям</button>
+  <button class="btn" data-tab="opex" type="button">Операционные расходы</button>
+  <button class="btn" data-tab="need" type="button">Чего не хватает</button>
+</nav>
+
+<section class="panel" data-pane="overview">
+  <h2>Обзор</h2>
+  <div class="sub" id="overviewSub"></div>
+  <div class="cards" id="cards" style="margin-top:12px"></div>
+  <div class="insights" id="insights"></div>
+  <div class="chart" id="overviewChart" style="margin:12px 0 4px"></div>
+  <div class="legend"><span><i style="background:var(--accent)"></i>Доходы, факт</span><span><i style="background:var(--plan)"></i>Доходы, план</span><span><i style="background:var(--good)"></i>Чистая прибыль</span></div>
+</section>
+
+<section class="panel hidden" data-pane="month">
+  <h2>P&L по месяцам: факт и план</h2>
+  <div class="sub">Факт — из «Юнит-экономики» дашборда (Акт реализации + баллы Ozon). План — из «Плана спринта» (воронка по товарам). Кнопки вверху показывают доли от доходов и отклонение к прошлому месяцу.</div>
+  <div class="scroll" style="margin-top:12px"><table id="monthTable"></table></div>
+  <div class="formula">
+    Доходы = реализация по Акту + баллы Ozon за скидки + программы лояльности.
+    Маржинальный доход = доходы − себестоимость − комиссия − логистика − реклама − прочие услуги Ozon.
+    EBITDA = маржинальный доход − операционные расходы.
+    Чистая прибыль = EBITDA − НДС − проценты по кредитам; НДС ОСНО = (реализация − себестоимость) × 22%.
+    Маржа = ЧП / доходы; ROI = ЧП / себестоимость; ДРР = реклама / доходы.
+  </div>
+</section>
+
+<section class="panel hidden" data-pane="sprint">
+  <h2>План спринта</h2>
+  <div class="sub" id="sprintSub"></div>
+  <div class="insights" id="sprintInsights"></div>
+  <div class="scroll" style="margin-top:8px"><table id="quarterTable"></table></div>
+  <div class="formula">
+    Как считается план (лист «WB_Воронка_Unit» образца, без его ошибок):
+    просмотры карточки = показы × CTR; корзина = просмотры карточки × CR в корзину; заказы = корзина × CR в заказ;
+    выкуплено = заказы × % выкупа; доходы = выкуплено × доход на 1 шт × цена месяца;
+    себестоимость = выкуплено × себестоимость 1 шт; логистика = выкуплено × логистика на 1 шт;
+    комиссия, прочие услуги и реклама = доходы × доля товара в последнем месяце факта.
+    Показы месяца = показы в день × дней в месяце × трафик месяца. Товары без воронки — выкуплено в день × дней × трафик.
+    % выполнения = факт / план. Операционные расходы — на вкладке «Операционные расходы».
+  </div>
+  <h3>Рычаги по месяцам</h3>
+  <div class="scroll"><table id="levers"></table></div>
+  <h3>Воронка по товарам</h3>
+  <div class="row"><div class="sub">Жёлтые поля — план, их можно менять. По умолчанию — из отчёта Ozon «Аналитика». Числа сохраняются в этом браузере.</div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><label for="funnelSrc" class="sub">Основа воронки</label><select id="funnelSrc"></select><button class="btn" type="button" id="resetSprint">Сбросить к данным отчёта</button></div></div>
+  <div class="scroll"><table id="skuPlanTable"></table></div>
+</section>
+
+<section class="panel hidden" data-pane="daily">
+  <div class="row"><h2 style="margin:0">План по дням</h2><select id="dailyMonth"></select></div>
+  <div class="sub" id="dailySub"></div>
+  <div class="scroll" style="margin-top:12px"><table id="dailyTable"></table></div>
+</section>
+
+<section class="panel hidden" data-pane="funnel">
+  <h2>Воронка и реклама по товарам</h2>
+  <div class="sub" id="funnelSub"></div>
+  <div class="scroll" style="margin-top:12px"><table id="funnelTable"></table></div>
+  <div class="formula">
+    Показов на 1 заказ = 1 / (CTR × CR в корзину × CR в заказ).
+    Прибыль с 1 шт до рекламы = доход на 1 шт − себестоимость − комиссия − логистика − прочие услуги − НДС.
+    Стоимость заказа из рекламы = расход на клики / заказы из кликов (по отчёту «Аналитика продвижения» в дашборде).
+    Прибыль с рекламного заказа = прибыль с 1 шт до рекламы × % выкупа − стоимость заказа из рекламы.
+  </div>
+  <h3>Калькулятор воронки</h3>
+  <div class="sub">Как лист «Как читать воронку» образца. Жёлтые поля — свои значения, по умолчанию — итог магазина.</div>
+  <div class="grid2" style="margin-top:10px">
+    <div class="scroll"><table id="calcIn"></table></div>
+    <div class="scroll"><table id="calcOut"></table></div>
+  </div>
+</section>
+
+<section class="panel hidden" data-pane="unit">
+  <h2>Юнит-экономика: на 1 выкупленную штуку</h2>
+  <div class="sub" id="unitSub"></div>
+  <div class="scroll" style="margin-top:12px"><table id="unitTable"></table></div>
+  <h3>Прибыль по товарам за месяц</h3>
+  <div class="row"><div class="sub">Расходы Ozon без привязки к товару, операционные расходы и проценты на товары не делятся — сумма по товарам больше чистой прибыли месяца.</div><select id="skuMonth"></select></div>
+  <div class="scroll"><table id="skuTable"></table></div>
+</section>
+
+<section class="panel hidden" data-pane="whatif">
+  <div class="row"><h2 style="margin:0">Безубыточность и «что если»</h2><select id="whatifMonth"></select></div>
+  <div class="sub">Сценарий считается от плана выбранного месяца, каждый раз от исходных значений, а не от предыдущего сдвига. Заказы от цены сами не меняются — если ждёте падения спроса при росте цены, сдвиньте и трафик.</div>
+  <div class="grid2" style="margin-top:12px">
+    <div id="sliders"></div>
+    <div class="scroll"><table id="whatifTable"></table></div>
+  </div>
+  <h3>Точка безубыточности</h3>
+  <div id="bep"></div>
+</section>
+
+<section class="panel hidden" data-pane="week">
+  <h2 id="weekTitle">P&L по неделям</h2>
+  <div class="sub">По отчёту «Начисления» Ozon, недели пн–вс. Это предварительный разрез: «Начисления» и Акт реализации расходятся по датам, поэтому сумма недель не равна месяцу по Акту — для сравнения справа месяц из дашборда. Операционные расходы месяца делятся на недели по числу дней.</div>
+  <div class="chart" id="weekChart" style="margin:12px 0 4px"></div>
+  <div class="legend"><span><i style="background:var(--accent)"></i>Доходы</span><span><i style="background:var(--good)"></i>Чистая прибыль</span></div>
+  <div class="scroll" style="margin-top:12px"><table id="weekTable"></table></div>
+</section>
+
+<section class="panel hidden" data-pane="opex">
+  <h2>Операционные расходы и проценты по кредитам</h2>
+  <div class="sub">Этих данных в дашборде нет (аренда, зарплаты, сервисы, кредиты). Пока поля пустые, чистая прибыль равна прибыли «Юнит-экономики». Внесите суммы за месяц — пересчитаются P&L, план, безубыточность. Тело кредита сюда не вносить — это не расход. Числа сохраняются только в этом браузере.</div>
+  <div class="scroll" style="margin-top:12px"><table id="opexTable"></table></div>
+</section>
+
+<section class="panel hidden" data-pane="need">
+  <h2>Чего не хватает до полной модели</h2>
+  <div class="sub">Модель-образец (P&L, план спринта, ДДС, баланс) — в <code>docs/finance-pnl-plan-model.md</code>. Собрано всё, на что есть данные. Остальное:</div>
+  <ol class="need" id="needList"></ol>
+</section>
+</div>
+
+<script>
+const DATA={"shop": "Северный дом", "channel": "Ozon", "vat": 0.22, "built": "2026-10-23", "months": [{"key": "2026-07", "label": "Июль 2026", "source": "Акт реализации №40107", "act": 2417230.0, "points": 0.0, "loyalty": 0.0, "revenue": 2417230.0, "cogs": 816120.0, "commission": 592221.35, "logistics": 212132.12, "ads": 136166.99, "other": 39374.08, "orphan": 14614.33, "tax": 145033.8, "netProfitDashboard": 461567.33, "sku": [{"article": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "sku": "270000101", "qty": 273, "revenue": 395850.0, "act": 395850.0, "cogs": 141960.0, "commission": 96983.25, "logistics": 37776.87, "ads": 23648.44, "other": 6542.4, "tax": 23751.0, "costPerUnit": 520.0, "profit": 65188.04}, {"article": "NHW-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин", "sku": "270000110", "qty": 95, "revenue": 340100.0, "act": 340100.0, "cogs": 128250.0, "commission": 83324.5, "logistics": 11790.39, "ads": 18857.9, "other": 5441.6, "tax": 20406.0, "costPerUnit": 1350.0, "profit": 72029.61}, {"article": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "sku": "270000104", "qty": 451, "revenue": 302170.0, "act": 302170.0, "cogs": 94710.0, "commission": 74031.65, "logistics": 38743.57, "ads": 17502.78, "other": 4931.2, "tax": 18130.2, "costPerUnit": 210.0, "profit": 54120.6}, {"article": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "sku": "270000102", "qty": 153, "revenue": 279990.0, "act": 279990.0, "cogs": 105570.0, "commission": 68597.55, "logistics": 20717.29, "ads": 17122.34, "other": 4626.24, "tax": 16799.4, "costPerUnit": 690.0, "profit": 46557.18}, {"article": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "sku": "270000103", "qty": 104, "revenue": 251680.0, "act": 251680.0, "cogs": 94640.0, "commission": 61661.6, "logistics": 13841.16, "ads": 15855.28, "other": 4065.6, "tax": 15100.8, "costPerUnit": 910.0, "profit": 46515.56}, {"article": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "sku": "270000105", "qty": 250, "revenue": 215000.0, "act": 215000.0, "cogs": 65000.0, "commission": 52675.0, "logistics": 21526.38, "ads": 12899.19, "other": 3508.8, "tax": 12900.0, "costPerUnit": 260.0, "profit": 46490.63}, {"article": "NHW-PIL-50", "name": "Наволочки сатин 50×70, 2 шт", "sku": "270000109", "qty": 178, "revenue": 170880.0, "act": 170880.0, "cogs": 49840.0, "commission": 41865.6, "logistics": 16243.33, "ads": 11170.67, "other": 2780.16, "tax": 10252.8, "costPerUnit": 280.0, "profit": 38727.44}, {"article": "NHW-TBL-140", "name": "Скатерть водоотталкивающая 140×180", "sku": "270000106", "qty": 139, "revenue": 159850.0, "act": 159850.0, "cogs": 47260.0, "commission": 39163.25, "logistics": 12074.46, "ads": 9775.21, "other": 2576.0, "tax": 9591.0, "costPerUnit": 340.0, "profit": 39410.08}, {"article": "NHW-SHT-160", "name": "Простыня на резинке 160×200, сатин", "sku": "270000111", "qty": 126, "revenue": 157500.0, "act": 157500.0, "cogs": 52920.0, "commission": 38587.5, "logistics": 11806.19, "ads": 9335.18, "other": 2540.0, "tax": 9450.0, "costPerUnit": 420.0, "profit": 32861.13}, {"article": "NHW-MIT-2", "name": "Прихватки-варежки, 2 шт", "sku": "270000108", "qty": 198, "revenue": 75240.0, "act": 75240.0, "cogs": 17820.0, "commission": 18433.8, "logistics": 16903.09, "ads": -0.0, "other": 1203.84, "tax": 4514.4, "costPerUnit": 90.0, "profit": 16364.87}, {"article": "NHW-APR-01", "name": "Фартук кухонный с карманом, лён", "sku": "270000107", "qty": 121, "revenue": 68970.0, "act": 68970.0, "cogs": 18150.0, "commission": 16897.65, "logistics": 10709.39, "ads": -0.0, "other": 1158.24, "tax": 4138.2, "costPerUnit": 150.0, "profit": 17916.52}]}, {"key": "2026-08", "label": "Август 2026", "source": "Акт реализации №40108", "act": 2629930.0, "points": 0.0, "loyalty": 0.0, "revenue": 2629930.0, "cogs": 887630.0, "commission": 644332.85, "logistics": 240663.17, "ads": 140995.78, "other": 43146.56, "orphan": 14448.65, "tax": 157795.8, "netProfitDashboard": 500917.19, "sku": [{"article": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "sku": "270000101", "qty": 329, "revenue": 477050.0, "act": 477050.0, "cogs": 171080.0, "commission": 116877.25, "logistics": 45227.37, "ads": 27420.24, "other": 7795.2, "tax": 28623.0, "costPerUnit": 520.0, "profit": 80026.94}, {"article": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "sku": "270000104", "qty": 490, "revenue": 328300.0, "act": 328300.0, "cogs": 102900.0, "commission": 80433.5, "logistics": 45778.45, "ads": 17900.11, "other": 5370.72, "tax": 19698.0, "costPerUnit": 210.0, "profit": 56219.22}, {"article": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "sku": "270000102", "qty": 177, "revenue": 323910.0, "act": 323910.0, "cogs": 122130.0, "commission": 79357.95, "logistics": 25675.04, "ads": 19492.03, "other": 5475.36, "tax": 19434.6, "costPerUnit": 690.0, "profit": 52345.02}, {"article": "NHW-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин", "sku": "270000110", "qty": 84, "revenue": 300720.0, "act": 300720.0, "cogs": 113400.0, "commission": 73676.4, "logistics": 12020.84, "ads": 16962.69, "other": 4983.36, "tax": 18043.2, "costPerUnit": 1350.0, "profit": 61633.51}, {"article": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "sku": "270000103", "qty": 117, "revenue": 283140.0, "act": 283140.0, "cogs": 106470.0, "commission": 69369.3, "logistics": 15627.06, "ads": 16232.93, "other": 4646.4, "tax": 16988.4, "costPerUnit": 910.0, "profit": 53805.91}, {"article": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "sku": "270000105", "qty": 286, "revenue": 245960.0, "act": 245960.0, "cogs": 74360.0, "commission": 60260.2, "logistics": 25643.76, "ads": 13986.05, "other": 3990.4, "tax": 14757.6, "costPerUnit": 260.0, "profit": 52961.99}, {"article": "NHW-PIL-50", "name": "Наволочки сатин 50×70, 2 шт", "sku": "270000109", "qty": 216, "revenue": 207360.0, "act": 207360.0, "cogs": 60480.0, "commission": 50803.2, "logistics": 18536.53, "ads": 10774.7, "other": 3333.12, "tax": 12441.6, "costPerUnit": 280.0, "profit": 50990.85}, {"article": "NHW-SHT-160", "name": "Простыня на резинке 160×200, сатин", "sku": "270000111", "qty": 130, "revenue": 162500.0, "act": 162500.0, "cogs": 54600.0, "commission": 39812.5, "logistics": 11326.16, "ads": 9112.77, "other": 2620.0, "tax": 9750.0, "costPerUnit": 420.0, "profit": 35278.57}, {"article": "NHW-TBL-140", "name": "Скатерть водоотталкивающая 140×180", "sku": "270000106", "qty": 136, "revenue": 156400.0, "act": 156400.0, "cogs": 46240.0, "commission": 38318.0, "logistics": 12401.95, "ads": 9114.26, "other": 2576.0, "tax": 9384.0, "costPerUnit": 340.0, "profit": 38365.79}, {"article": "NHW-MIT-2", "name": "Прихватки-варежки, 2 шт", "sku": "270000108", "qty": 208, "revenue": 79040.0, "act": 79040.0, "cogs": 18720.0, "commission": 19364.8, "logistics": 17981.1, "ads": -0.0, "other": 1288.96, "tax": 4742.4, "costPerUnit": 90.0, "profit": 16942.74}, {"article": "NHW-APR-01", "name": "Фартук кухонный с карманом, лён", "sku": "270000107", "qty": 115, "revenue": 65550.0, "act": 65550.0, "cogs": 17250.0, "commission": 16059.75, "logistics": 10444.91, "ads": -0.0, "other": 1067.04, "tax": 3933.0, "costPerUnit": 150.0, "profit": 16795.3}]}, {"key": "2026-09", "label": "Сентябрь 2026", "source": "Акт реализации №40109", "act": 2823762.5, "points": 0.0, "loyalty": 0.0, "revenue": 2823762.5, "cogs": 1005784.0, "commission": 691821.8, "logistics": 253217.51, "ads": 152099.71, "other": 46035.44, "orphan": 14665.8, "tax": 169425.75, "netProfitDashboard": 490712.49, "sku": [{"article": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "sku": "270000101", "qty": 372, "revenue": 534426.5, "act": 534426.5, "cogs": 201252.0, "commission": 130934.37, "logistics": 51480.52, "ads": 31785.39, "other": 8642.2, "tax": 32065.59, "costPerUnit": 541.0, "profit": 78266.43}, {"article": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "sku": "270000102", "qty": 214, "revenue": 388545.6, "act": 388545.6, "cogs": 153652.0, "commission": 95193.78, "logistics": 27565.52, "ads": 21902.43, "other": 6275.28, "tax": 23312.74, "costPerUnit": 718.0, "profit": 60643.85}, {"article": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "sku": "270000104", "qty": 538, "revenue": 357552.2, "act": 357552.2, "cogs": 117284.0, "commission": 87600.32, "logistics": 48846.71, "ads": 18354.58, "other": 5892.38, "tax": 21453.13, "costPerUnit": 218.0, "profit": 58121.08}, {"article": "NHW-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин", "sku": "270000110", "qty": 91, "revenue": 322772.8, "act": 322772.8, "cogs": 127764.0, "commission": 79079.3, "logistics": 11637.23, "ads": 18999.29, "other": 5164.36, "tax": 19366.37, "costPerUnit": 1404.0, "profit": 60762.25}, {"article": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "sku": "270000103", "qty": 134, "revenue": 321569.6, "act": 321569.6, "cogs": 126764.0, "commission": 78784.6, "logistics": 18550.53, "ads": 18955.6, "other": 5338.72, "tax": 19294.18, "costPerUnit": 946.0, "profit": 53881.97}, {"article": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "sku": "270000105", "qty": 264, "revenue": 225655.4, "act": 225655.4, "cogs": 71280.0, "commission": 55285.55, "logistics": 24074.24, "ads": 13209.62, "other": 3733.44, "tax": 13539.32, "costPerUnit": 270.0, "profit": 44533.23}, {"article": "NHW-PIL-50", "name": "Наволочки сатин 50×70, 2 шт", "sku": "270000109", "qty": 208, "revenue": 198134.4, "act": 198134.4, "cogs": 60528.0, "commission": 48543.02, "logistics": 17774.92, "ads": 10893.83, "other": 3246.84, "tax": 11888.06, "costPerUnit": 291.0, "profit": 45259.73}, {"article": "NHW-SHT-160", "name": "Простыня на резинке 160×200, сатин", "sku": "270000111", "qty": 136, "revenue": 168862.5, "act": 168862.5, "cogs": 59432.0, "commission": 41371.28, "logistics": 12234.31, "ads": 8900.79, "other": 2741.8, "tax": 10131.75, "costPerUnit": 437.0, "profit": 34050.57}, {"article": "NHW-TBL-140", "name": "Скатерть водоотталкивающая 140×180", "sku": "270000106", "qty": 140, "revenue": 160114.5, "act": 160114.5, "cogs": 49560.0, "commission": 39228.08, "logistics": 12462.03, "ads": 9098.18, "other": 2598.61, "tax": 9606.87, "costPerUnit": 354.0, "profit": 37560.73}, {"article": "NHW-MIT-2", "name": "Прихватки-варежки, 2 шт", "sku": "270000108", "qty": 198, "revenue": 74787.8, "act": 74787.8, "cogs": 18612.0, "commission": 18322.96, "logistics": 17751.25, "ads": -0.0, "other": 1233.01, "tax": 4487.27, "costPerUnit": 94.0, "profit": 14381.31}, {"article": "NHW-APR-01", "name": "Фартук кухонный с карманом, лён", "sku": "270000107", "qty": 126, "revenue": 71341.2, "act": 71341.2, "cogs": 19656.0, "commission": 17478.54, "logistics": 10840.25, "ads": -0.0, "other": 1168.8, "tax": 4280.47, "costPerUnit": 156.0, "profit": 17917.14}]}], "accruals": {"month": "2026-10", "daily": [{"date": "2026-10-01", "act": 87910.2, "points": 0.0, "loyalty": 0.0, "commission": 21538.03, "logistics": 7955.69, "ads": 1990.0, "other": 1944.86, "cogs": 33235.0, "orderedQty": 85.0, "returnedQty": 7.0}, {"date": "2026-10-02", "act": 93873.8, "points": 0.0, "loyalty": 0.0, "commission": 22999.02, "logistics": 8554.82, "ads": -0.0, "other": 1904.51, "cogs": 35910.0, "orderedQty": 90.0, "returnedQty": 7.0}, {"date": "2026-10-03", "act": 116463.9, "points": 0.0, "loyalty": 0.0, "commission": 28533.66, "logistics": 10340.39, "ads": -0.0, "other": 2349.33, "cogs": 44866.0, "orderedQty": 108.0, "returnedQty": 7.0}, {"date": "2026-10-04", "act": 85118.5, "points": 0.0, "loyalty": 0.0, "commission": 20854.06, "logistics": 8892.91, "ads": -0.0, "other": 1782.15, "cogs": 32146.0, "orderedQty": 92.0, "returnedQty": 13.0}, {"date": "2026-10-05", "act": 74446.5, "points": 0.0, "loyalty": 0.0, "commission": 18239.38, "logistics": 6981.2, "ads": -0.0, "other": 1602.03, "cogs": 29050.0, "orderedQty": 68.0, "returnedQty": 9.0}, {"date": "2026-10-06", "act": 82023.3, "points": 0.0, "loyalty": 0.0, "commission": 20095.68, "logistics": 7515.57, "ads": -0.0, "other": 1804.23, "cogs": 31907.0, "orderedQty": 77.0, "returnedQty": 6.0}, {"date": "2026-10-07", "act": 89428.8, "points": 0.0, "loyalty": 0.0, "commission": 21910.0, "logistics": 8631.26, "ads": -0.0, "other": 1886.35, "cogs": 33895.0, "orderedQty": 92.0, "returnedQty": 8.0}, {"date": "2026-10-08", "act": 111672.4, "points": 0.0, "loyalty": 0.0, "commission": 27359.73, "logistics": 10894.02, "ads": -0.0, "other": 2301.01, "cogs": 40953.0, "orderedQty": 112.0, "returnedQty": 12.0}, {"date": "2026-10-09", "act": 94832.6, "points": 0.0, "loyalty": 0.0, "commission": 23233.99, "logistics": 8001.51, "ads": -0.0, "other": 1981.86, "cogs": 35297.0, "orderedQty": 81.0, "returnedQty": 9.0}, {"date": "2026-10-10", "act": 97720.5, "points": 0.0, "loyalty": 0.0, "commission": 23941.52, "logistics": 8198.05, "ads": -0.0, "other": 2003.98, "cogs": 35111.0, "orderedQty": 85.0, "returnedQty": 9.0}, {"date": "2026-10-11", "act": 95265.0, "points": 0.0, "loyalty": 0.0, "commission": 23339.93, "logistics": 8558.61, "ads": -0.0, "other": 655.65, "cogs": 33712.0, "orderedQty": 89.0, "returnedQty": 12.0}, {"date": "2026-10-12", "act": 81706.8, "points": 0.0, "loyalty": 0.0, "commission": 20018.17, "logistics": 7026.34, "ads": -0.0, "other": 1808.86, "cogs": 29025.0, "orderedQty": 74.0, "returnedQty": 7.0}, {"date": "2026-10-13", "act": 96160.0, "points": 0.0, "loyalty": 0.0, "commission": 23559.2, "logistics": 8960.86, "ads": -0.0, "other": 1980.32, "cogs": 33881.0, "orderedQty": 91.0, "returnedQty": 12.0}, {"date": "2026-10-14", "act": 110147.2, "points": 0.0, "loyalty": 0.0, "commission": 26986.06, "logistics": 9252.8, "ads": -0.0, "other": 2187.57, "cogs": 39402.0, "orderedQty": 95.0, "returnedQty": 6.0}, {"date": "2026-10-15", "act": 113170.0, "points": 0.0, "loyalty": 0.0, "commission": 27726.65, "logistics": 10160.44, "ads": -0.0, "other": 2253.9, "cogs": 40312.0, "orderedQty": 106.0, "returnedQty": 9.0}, {"date": "2026-10-16", "act": 125410.0, "points": 0.0, "loyalty": 0.0, "commission": 30725.45, "logistics": 10593.3, "ads": -0.0, "other": 2489.45, "cogs": 44153.0, "orderedQty": 113.0, "returnedQty": 10.0}, {"date": "2026-10-17", "act": 93335.0, "points": 0.0, "loyalty": 0.0, "commission": 22867.07, "logistics": 8541.51, "ads": -0.0, "other": 1948.56, "cogs": 33549.0, "orderedQty": 85.0, "returnedQty": 10.0}, {"date": "2026-10-18", "act": 104130.0, "points": 0.0, "loyalty": 0.0, "commission": 25511.85, "logistics": 8237.4, "ads": -0.0, "other": 2116.07, "cogs": 37157.0, "orderedQty": 88.0, "returnedQty": 3.0}, {"date": "2026-10-19", "act": 95080.0, "points": 0.0, "loyalty": 0.0, "commission": 23294.6, "logistics": 7880.31, "ads": -0.0, "other": 1963.39, "cogs": 34458.0, "orderedQty": 79.0, "returnedQty": 7.0}, {"date": "2026-10-20", "act": 100000.0, "points": 0.0, "loyalty": 0.0, "commission": 24500.0, "logistics": 8463.44, "ads": -0.0, "other": 2139.66, "cogs": 35447.0, "orderedQty": 91.0, "returnedQty": 5.0}, {"date": "2026-10-21", "act": 90560.0, "points": 0.0, "loyalty": 0.0, "commission": 22187.2, "logistics": 8371.2, "ads": -0.0, "other": 1977.95, "cogs": 31897.0, "orderedQty": 86.0, "returnedQty": 10.0}, {"date": "2026-10-22", "act": 103380.0, "points": 0.0, "loyalty": 0.0, "commission": 25328.1, "logistics": 8504.92, "ads": -0.0, "other": 2169.28, "cogs": 36360.0, "orderedQty": 92.0, "returnedQty": 2.0}], "weeks": [{"from": "2026-10-01", "to": "2026-10-04", "days": 4, "act": 383366.4, "points": 0.0, "loyalty": 0.0, "commission": 93924.77, "logistics": 35743.81, "ads": 1990.0, "other": 7980.85, "cogs": 146157.0, "orderedQty": 375.0, "returnedQty": 34.0}, {"from": "2026-10-05", "to": "2026-10-11", "days": 7, "act": 645389.1, "points": 0.0, "loyalty": 0.0, "commission": 158120.23, "logistics": 58780.22, "ads": 0.0, "other": 12235.11, "cogs": 239925.0, "orderedQty": 604.0, "returnedQty": 65.0}, {"from": "2026-10-12", "to": "2026-10-18", "days": 7, "act": 724059.0, "points": 0.0, "loyalty": 0.0, "commission": 177394.45, "logistics": 62772.65, "ads": 0.0, "other": 14784.73, "cogs": 257479.0, "orderedQty": 652.0, "returnedQty": 57.0}, {"from": "2026-10-19", "to": "2026-10-22", "days": 4, "act": 389020.0, "points": 0.0, "loyalty": 0.0, "commission": 95309.9, "logistics": 33219.87, "ads": 0.0, "other": 8250.28, "cogs": 138162.0, "orderedQty": 348.0, "returnedQty": 24.0}], "missingCost": {}, "typeTotals": {"Вознаграждение за продажу → commission": -524749.35, "MarketplaceServiceItemDirectFlowLogistic → logistics": -180306.21, "Возвраты → act": -39376.8, "MarketplaceRedistributionOfAcquiringOperation → other": -34899.48, "MarketplaceServiceItemReturnFlowLogistic → logistics": -10210.34, "Услуга размещения товаров на складе → other": -9772.92, "Подписка Premium → ads": -1990.0, "Компенсация за утерянный товар → other": 1421.43, "Выручка → act": 2181211.3}}, "products": [{"article": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "sku": "270000101", "qty": 372, "revPerUnit": 1436.630376344086, "actShare": 1.0, "costPerUnit": 541.0, "costAssumed": false, "commissionPct": 0.2449997707823246, "logisticsPct": 0.09632853161285976, "otherPct": 0.016170979545363114, "adsPct": 0.05947569965186981, "stockDashboard": 308.0, "ads": {"cpcSpend": 32517.5, "clicks": 2647.0, "cpcQty": 149.0, "cpoSpend": 0, "cpoQty": 0}, "funnel": {"7": {"name": "Плед флисовый 150×200, графит", "orders": 112.0, "ordersRub": 162400.0, "buyout": 0.883, "shows": 37091.0, "searchViews": 0, "cardViews": 2140.0, "cart": 343.0, "stock": 308.0, "drrOzon": 0.052}, "28": {"name": "Плед флисовый 150×200, графит", "orders": 473.0, "ordersRub": 667584.0, "buyout": 0.883, "shows": 165091.0, "searchViews": 0, "cardViews": 9331.0, "cart": 1398.0, "stock": 308.0, "drrOzon": 0.049}}}, {"article": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "sku": "270000102", "qty": 214, "revPerUnit": 1815.6336448598129, "actShare": 1.0, "costPerUnit": 718.0, "costAssumed": false, "commissionPct": 0.24500027795965262, "logisticsPct": 0.07094539225254386, "otherPct": 0.01615069119300283, "adsPct": 0.05637029476076939, "stockDashboard": 181.0, "ads": {"cpcSpend": 22275.32, "clicks": 1811.0, "cpcQty": 71.0, "cpoSpend": 0, "cpoQty": 0}, "funnel": {"7": {"name": "Плед флисовый 200×220, графит", "orders": 69.0, "ordersRub": 126270.0, "buyout": 0.897, "shows": 27786.0, "searchViews": 0, "cardViews": 1477.0, "cart": 211.0, "stock": 181.0, "drrOzon": 0.048}, "28": {"name": "Плед флисовый 200×220, графит", "orders": 257.0, "ordersRub": 457627.0, "buyout": 0.897, "shows": 94105.0, "searchViews": 0, "cardViews": 5353.0, "cart": 802.0, "stock": 181.0, "drrOzon": 0.049}}}, {"article": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "sku": "270000104", "qty": 538, "revPerUnit": 664.5951672862453, "actShare": 1.0, "costPerUnit": 218.0, "costAssumed": false, "commissionPct": 0.24500008670062723, "logisticsPct": 0.13661420626135148, "otherPct": 0.016479775540466538, "adsPct": 0.0513339870374172, "stockDashboard": 627.0, "ads": {"cpcSpend": 16867.06, "clicks": 1319.0, "cpcQty": 165.0, "cpoSpend": 0, "cpoQty": 0}, "funnel": {"7": {"name": "Полотенца вафельные 45×70, набор 3 шт", "orders": 128.0, "ordersRub": 85760.0, "buyout": 0.922, "shows": 39505.0, "searchViews": 0, "cardViews": 2486.0, "cart": 378.0, "stock": 627.0, "drrOzon": 0.056}, "28": {"name": "Полотенца вафельные 45×70, набор 3 шт", "orders": 499.0, "ordersRub": 324951.0, "buyout": 0.922, "shows": 164995.0, "searchViews": 0, "cardViews": 9939.0, "cart": 1481.0, "stock": 627.0, "drrOzon": 0.052}}}, {"article": "NHW-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин", "sku": "270000110", "qty": 91, "revPerUnit": 3546.953846153846, "actShare": 1.0, "costPerUnit": 1404.0, "costAssumed": false, "commissionPct": 0.24499988846643833, "logisticsPct": 0.03605393639117051, "otherPct": 0.015999985128858443, "adsPct": 0.05886273564563062, "stockDashboard": 81.0, "ads": {"cpcSpend": 17390.53, "clicks": 1434.0, "cpcQty": 21.0, "cpoSpend": 0, "cpoQty": 0}, "funnel": {"7": {"name": "Комплект постельного белья 1,5-сп., сатин", "orders": 22.0, "ordersRub": 78760.0, "buyout": 0.9279999999999999, "shows": 11337.0, "searchViews": 0, "cardViews": 596.0, "cart": 94.0, "stock": 81.0, "drrOzon": 0.05}, "28": {"name": "Комплект постельного белья 1,5-сп., сатин", "orders": 98.0, "ordersRub": 340317.0, "buyout": 0.9279999999999999, "shows": 45654.0, "searchViews": 0, "cardViews": 2533.0, "cart": 369.0, "stock": 81.0, "drrOzon": 0.051}}}, {"article": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "sku": "270000103", "qty": 134, "revPerUnit": 2399.773134328358, "actShare": 1.0, "costPerUnit": 946.0, "costAssumed": false, "commissionPct": 0.24500014926784128, "logisticsPct": 0.057687449311128916, "otherPct": 0.016602066862041687, "adsPct": 0.05894711440384912, "stockDashboard": 103.0, "ads": {"cpcSpend": 18404.83, "clicks": 1510.0, "cpcQty": 43.0, "cpoSpend": 0, "cpoQty": 0}, "funnel": {"7": {"name": "Плед вязаный 130×170, молочный", "orders": 43.0, "ordersRub": 104060.0, "buyout": 0.87, "shows": 17683.0, "searchViews": 0, "cardViews": 993.0, "cart": 131.0, "stock": 103.0, "drrOzon": 0.043}, "28": {"name": "Плед вязаный 130×170, молочный", "orders": 163.0, "ordersRub": 384465.0, "buyout": 0.87, "shows": 65474.0, "searchViews": 0, "cardViews": 3670.0, "cart": 518.0, "stock": 103.0, "drrOzon": 0.048}}}, {"article": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "sku": "270000105", "qty": 264, "revPerUnit": 854.755303030303, "actShare": 1.0, "costPerUnit": 270.0, "costAssumed": false, "commissionPct": 0.24499989807467495, "logisticsPct": 0.10668585817135331, "otherPct": 0.016544873289094788, "adsPct": 0.05853890489658125, "stockDashboard": 510.0, "ads": {"cpcSpend": 10640.06, "clicks": 871.0, "cpcQty": 73.0, "cpoSpend": 0, "cpoQty": 0}, "funnel": {"7": {"name": "Полотенце махровое 70×140, серое", "orders": 54.0, "ordersRub": 46440.0, "buyout": 0.902, "shows": 21771.0, "searchViews": 0, "cardViews": 1194.0, "cart": 177.0, "stock": 510.0, "drrOzon": 0.051}, "28": {"name": "Полотенце махровое 70×140, серое", "orders": 251.0, "ordersRub": 210019.0, "buyout": 0.902, "shows": 95633.0, "searchViews": 0, "cardViews": 5408.0, "cart": 806.0, "stock": 510.0, "drrOzon": 0.051}}}, {"article": "NHW-PIL-50", "name": "Наволочки сатин 50×70, 2 шт", "sku": "270000109", "qty": 208, "revPerUnit": 952.5692307692308, "actShare": 1.0, "costPerUnit": 291.0, "costAssumed": false, "commissionPct": 0.2450004643312822, "logisticsPct": 0.08971142820227078, "otherPct": 0.016387058481515577, "adsPct": 0.0549820223040522, "stockDashboard": 522.0, "ads": {"cpcSpend": 9488.15, "clicks": 794.0, "cpcQty": 52.0, "cpoSpend": 0, "cpoQty": 0}, "funnel": {"7": {"name": "Наволочки сатин 50×70, 2 шт", "orders": 50.0, "ordersRub": 48000.0, "buyout": 0.9329999999999999, "shows": 18173.0, "searchViews": 0, "cardViews": 1122.0, "cart": 160.0, "stock": 522.0, "drrOzon": 0.051}, "28": {"name": "Наволочки сатин 50×70, 2 шт", "orders": 195.0, "ordersRub": 182362.0, "buyout": 0.9329999999999999, "shows": 75346.0, "searchViews": 0, "cardViews": 4266.0, "cart": 606.0, "stock": 522.0, "drrOzon": 0.052}}}, {"article": "NHW-SHT-160", "name": "Простыня на резинке 160×200, сатин", "sku": "270000111", "qty": 136, "revPerUnit": 1241.6360294117646, "actShare": 1.0, "costPerUnit": 437.0, "costAssumed": false, "commissionPct": 0.24499980753571693, "logisticsPct": 0.07245131393885558, "otherPct": 0.016236879117625287, "adsPct": 0.052710282034199425, "stockDashboard": 246.0, "ads": {"cpcSpend": 8718.27, "clicks": 660.0, "cpcQty": 39.0, "cpoSpend": 0, "cpoQty": 0}, "funnel": {"7": {"name": "Простыня на резинке 160×200, сатин", "orders": 39.0, "ordersRub": 48750.0, "buyout": 0.93, "shows": 15925.0, "searchViews": 0, "cardViews": 899.0, "cart": 135.0, "stock": 246.0, "drrOzon": 0.051}, "28": {"name": "Простыня на резинке 160×200, сатин", "orders": 146.0, "ordersRub": 178037.0, "buyout": 0.93, "shows": 58172.0, "searchViews": 0, "cardViews": 3323.0, "cart": 501.0, "stock": 246.0, "drrOzon": 0.049}}}, {"article": "NHW-TBL-140", "name": "Скатерть водоотталкивающая 140×180", "sku": "270000106", "qty": 140, "revPerUnit": 1143.675, "actShare": 1.0, "costPerUnit": 354.0, "costAssumed": false, "commissionPct": 0.24500017175208993, "logisticsPct": 0.07783198898288413, "otherPct": 0.016229698122281245, "adsPct": 0.05682296106848537, "stockDashboard": 327.0, "ads": {"cpcSpend": 8639.99, "clicks": 704.0, "cpcQty": 35.0, "cpoSpend": 0, "cpoQty": 0}, "funnel": {"7": {"name": "Скатерть водоотталкивающая 140×180", "orders": 40.0, "ordersRub": 46000.0, "buyout": 0.935, "shows": 15396.0, "searchViews": 0, "cardViews": 918.0, "cart": 139.0, "stock": 327.0, "drrOzon": 0.052}, "28": {"name": "Скатерть водоотталкивающая 140×180", "orders": 146.0, "ordersRub": 163392.0, "buyout": 0.935, "shows": 57638.0, "searchViews": 0, "cardViews": 3291.0, "cart": 492.0, "stock": 327.0, "drrOzon": 0.053}}}, {"article": "NHW-MIT-2", "name": "Прихватки-варежки, 2 шт", "sku": "270000108", "qty": 198, "revPerUnit": 377.7161616161616, "actShare": 1.0, "costPerUnit": 94.0, "costAssumed": false, "commissionPct": 0.24499931807059439, "logisticsPct": 0.23735488943383812, "otherPct": 0.016486779929346763, "adsPct": -0.0, "stockDashboard": 1031.0, "ads": {"cpcSpend": 0, "clicks": 0, "cpcQty": 0, "cpoSpend": 0, "cpoQty": 0}, "funnel": {"7": {"name": "Прихватки-варежки, 2 шт", "orders": 51.0, "ordersRub": 19380.0, "buyout": 0.9129999999999999, "shows": 21080.0, "searchViews": 0, "cardViews": 1173.0, "cart": 174.0, "stock": 1031.0, "drrOzon": 0.0}, "28": {"name": "Прихватки-варежки, 2 шт", "orders": 199.0, "ordersRub": 73599.0, "buyout": 0.9129999999999999, "shows": 79184.0, "searchViews": 0, "cardViews": 4461.0, "cart": 634.0, "stock": 1031.0, "drrOzon": 0.0}}}, {"article": "NHW-APR-01", "name": "Фартук кухонный с карманом, лён", "sku": "270000107", "qty": 126, "revPerUnit": 566.1999999999999, "actShare": 1.0, "costPerUnit": 156.0, "costAssumed": false, "commissionPct": 0.2449992430741283, "logisticsPct": 0.15194936446261068, "otherPct": 0.016383239979142487, "adsPct": -0.0, "stockDashboard": 654.0, "ads": {"cpcSpend": 0, "clicks": 0, "cpcQty": 0, "cpoSpend": 0, "cpoQty": 0}, "funnel": {"7": {"name": "Фартук кухонный с карманом, лён", "orders": 28.0, "ordersRub": 15960.0, "buyout": 0.902, "shows": 11779.0, "searchViews": 0, "cardViews": 696.0, "cart": 97.0, "stock": 654.0, "drrOzon": 0.0}, "28": {"name": "Фартук кухонный с карманом, лён", "orders": 123.0, "ordersRub": 67994.0, "buyout": 0.902, "shows": 54140.0, "searchViews": 0, "cardViews": 3006.0, "cart": 423.0, "stock": 654.0, "drrOzon": 0.0}}}], "analytics": {"7": {"period": "7 дней", "made": "22.10.2026", "days": 7}, "28": {"period": "28 дней", "made": "22.10.2026", "days": 28}}, "warnings": []};
+(function(){
+'use strict';
+const D=DATA, VAT=D.vat||0.22;
+const STORE='pnl_'+(D.shop||'shop').replace(/\W+/g,'_')+'_v2';
+const MONTHS_RU=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+const daysIn=key=>{const [y,m]=key.split('-').map(Number);return new Date(y,m,0).getDate()};
+const monthLabel=key=>{const [y,m]=key.split('-').map(Number);return cap(MONTHS_RU[m-1])+' '+y};
+const addMonth=(key,n)=>{let [y,m]=key.split('-').map(Number);m+=n;y+=Math.floor((m-1)/12);m=((m-1)%12+12)%12+1;return y+'-'+String(m).padStart(2,'0')};
+const quarterOf=key=>{const m=+key.split('-')[1];return ['I','II','III','IV'][Math.floor((m-1)/3)]};
+
+const FACT=D.months, LAST=FACT[FACT.length-1];
+// План — на следующий квартал после последнего месяца факта.
+const firstPlan=addMonth(LAST.key,1), qStart=addMonth(firstPlan,-((+firstPlan.split('-')[1]-1)%3));
+const PLAN_MONTHS=[0,1,2].map(n=>addMonth(qStart,n)).filter(k=>k>LAST.key).map(k=>({key:k,label:monthLabel(k),days:daysIn(k)}));
+const QLABEL=quarterOf(PLAN_MONTHS[0].key)+' кв. '+PLAN_MONTHS[0].key.slice(0,4);
+
+const OPEX_LINES=[
+  {id:'admin',label:'Административные (аренда, связь, сервисы, бухгалтерия)'},
+  {id:'commercial',label:'Коммерческие (дизайнеры, фото, внешняя реклама)'},
+  {id:'staff',label:'Персонал (зарплата, налоги и взносы)'},
+  {id:'otherOpex',label:'Прочие операционные'},
+  {id:'goods',label:'Расходы на товар (фулфилмент, упаковка, ЧЗ)'},
+];
+
+// ---------- формат ----------
+const nf=new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0});
+const nf1=new Intl.NumberFormat('ru-RU',{maximumFractionDigits:1,minimumFractionDigits:0});
+const ok=v=>v!=null&&isFinite(v);
+const money=v=>!ok(v)?'—':(v<0?'−':'')+nf.format(Math.abs(Math.round(v)));
+const int=v=>!ok(v)?'—':(v<0?'−':'')+nf.format(Math.abs(Math.round(v)));
+const dec=v=>!ok(v)?'—':(v<0?'−':'')+nf1.format(Math.abs(v));
+const pct=(v,d=1)=>!ok(v)?'—':(v<0?'−':'')+Math.abs(v*100).toFixed(d).replace('.',',')+'%';
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num=v=>{const x=parseFloat(String(v).replace(/\s/g,'').replace(/ /g,'').replace(',','.'));return isFinite(x)?x:0};
+const div=(a,b)=>ok(a)&&ok(b)&&b?a/b:null;
+const fmtIn=(v,d)=>ok(v)?String(+(+v).toFixed(d)).replace('.',','):'';
+
+// ---------- хранение ----------
+let state={};try{state=JSON.parse(localStorage.getItem(STORE))||{}}catch(e){}
+function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){}}
+state.opex=state.opex||{};state.sku=state.sku||{};state.levers=state.levers||{};
+state.funnelSrc=state.funnelSrc||(D.analytics['28']?'28':Object.keys(D.analytics)[0]||'');
+state.calc=state.calc||{};state.whatif=state.whatif||{};
+
+// ---------- факт: доп. показатели из «Начислений» ----------
+const ACC=D.accruals;
+const accSum=k=>ACC.daily.reduce((s,d)=>s+d[k],0);
+const BUYOUT_ACC=div(accSum('orderedQty')-accSum('returnedQty'),accSum('orderedQty'));
+
+// ---------- товары: база плана ----------
+const P=D.products;
+const orphanPct=LAST.orphan/LAST.revenue;
+function funnelBase(p){
+  const f=p.funnel&&p.funnel[state.funnelSrc];
+  if(!f||!f.shows||!f.orders)return null;
+  const days=D.analytics[state.funnelSrc].days;
+  return {showsDay:f.shows/days,ctr:div(f.cardViews,f.shows),cr1:div(f.cart,f.cardViews),cr2:div(f.orders,f.cart),
+    buyout:f.buyout||BUYOUT_ACC||1,buyerPrice:div(f.ordersRub,f.orders),stock:f.stock,ordersDay:f.orders/days};
+}
+// Остаток: из «Аналитики» за 7 дней (в 28-дневной Ozon пишет 0), иначе — из дашборда.
+function stockOf(p){const f7=p.funnel&&p.funnel['7'];return f7?f7.stock:p.stockDashboard}
+function skuParams(p){
+  const b=funnelBase(p),o=state.sku[p.article]||{};
+  const pick=(k,def)=>o[k]!=null?o[k]:def;
+  const logisticsPerUnit=p.logisticsPct*p.revPerUnit;
+  if(b)return {funnel:true,showsDay:pick('showsDay',b.showsDay),ctr:pick('ctr',b.ctr),cr1:pick('cr1',b.cr1),cr2:pick('cr2',b.cr2),
+    buyout:pick('buyout',b.buyout),buyerPrice:b.buyerPrice,stock:stockOf(p),base:b,logisticsPerUnit};
+  const boughtDay=p.qty/daysIn(LAST.key);
+  return {funnel:false,boughtDay:pick('boughtDay',boughtDay),buyout:BUYOUT_ACC||1,buyerPrice:p.revPerUnit*p.actShare,
+    stock:stockOf(p),base:{boughtDay},logisticsPerUnit};
+}
+function lever(mk,k){const l=state.levers[mk]||{};return l[k]!=null?l[k]:100}
+
+// План одного товара на месяц; sc — сценарий «что если» (множители, 1 = без изменений).
+function planSku(p,m,sc){
+  sc=sc||{};const t=(sc.traffic||1)*lever(m.key,'traffic')/100,pr=(sc.price||1)*lever(m.key,'price')/100;
+  const conv=sc.conv||1,adsK=(sc.ads||1)*lever(m.key,'ads')/100,costK=sc.cost||1;
+  const q=skuParams(p),r={article:p.article,funnel:q.funnel};
+  if(q.funnel){
+    r.shows=q.showsDay*m.days*t;r.views=r.shows*q.ctr;r.cart=r.views*q.cr1*conv;r.orders=r.cart*q.cr2;
+  }else{
+    r.shows=r.views=r.cart=null;r.orders=q.boughtDay*m.days*t*conv/q.buyout;
+  }
+  r.bought=r.orders*q.buyout;r.ordersRub=r.orders*(q.buyerPrice||0)*pr;
+  r.revenue=r.bought*p.revPerUnit*pr;r.act=r.revenue*p.actShare;r.points=r.revenue-r.act;r.loyalty=0;
+  r.cogs=r.bought*p.costPerUnit*costK;r.commission=r.revenue*p.commissionPct;r.logistics=r.bought*q.logisticsPerUnit;
+  r.other=r.revenue*p.otherPct;r.ads=r.revenue*p.adsPct*adsK;r.orphan=0;
+  r.tax=Math.max(0,(r.act-r.cogs)*VAT);
+  r.profit=r.revenue-r.cogs-r.commission-r.logistics-r.other-r.ads-r.tax;
+  r.stock=q.stock;
+  return r;
+}
+
+// ---------- колонка P&L ----------
+const ADD=['shows','views','cart','orders','ordersRub','bought','revenue','act','points','loyalty','cogs','commission','logistics','ads','other','orphan','tax'];
+function opexOf(key){const o=state.opex[key]||{};return OPEX_LINES.reduce((s,l)=>s+num(o[l.id]),0)}
+function interestOf(key){return num((state.opex[key]||{}).interest)}
+function __demoLines(c){var t=(c.other||0)+(c.orphan||0),S={"acq": 0.26, "stor": 0.24, "accept": 0.02, "fine": 0.03, "transit": 0.15, "jam": 0.06, "rev": 0.03, "loyal": 0.08},K=["acq", "stor", "accept", "fine", "transit", "jam", "rev", "loyal", "etc"],left=t;c.otherLines={};K.forEach(function(k){var v=(k in S)?t*S[k]:left;c.otherLines[k]=v;left-=v;});var a=c.act!=null?c.act:c.revenue;c.grossBefore=a!=null?a/(1-0.27):null;c.discount=a!=null?c.grossBefore-a:null;}
+function finish(c){
+  c.variable=c.cogs+c.commission+c.logistics+c.ads+c.other+c.orphan;__demoLines(c);
+  c.contribution=c.revenue-c.variable;
+  if(!c.quarter){c.opexLines={};OPEX_LINES.forEach(l=>c.opexLines[l.id]=num((state.opex[c.key]||{})[l.id]));c.opex=opexOf(c.key);c.interest=interestOf(c.key)}
+  c.ebitda=c.contribution-c.opex;c.net=c.ebitda-c.tax-c.interest;
+  c.margin=div(c.net,c.revenue);c.roi=div(c.net,c.cogs);c.drr=div(c.ads,c.revenue);c.drrOrders=div(c.ads,c.ordersRub);
+  c.ctr=div(c.views,c.shows);c.cr1=div(c.cart,c.views);c.cr2=div(c.orders,c.funnelOrders);c.check=div(c.ordersRub,c.orders);
+  c.buyout=c.buyoutFixed!=null?c.buyoutFixed:div(c.bought,c.orders);
+  return c;
+}
+function factCol(m){
+  const c={key:m.key,label:m.label,kind:'fact',revenue:m.revenue,act:m.act,points:m.points,loyalty:m.loyalty,cogs:m.cogs,
+    commission:m.commission,logistics:m.logistics,ads:m.ads,other:m.other,orphan:m.orphan,tax:m.tax,
+    bought:m.sku.reduce((s,r)=>s+r.qty,0),shows:null,views:null,cart:null,ordersRub:null,orders:null};
+  if(ACC.month===m.key){c.orders=accSum('orderedQty');c.buyoutFixed=BUYOUT_ACC}
+  return finish(c);
+}
+function planCol(m,sc){
+  const rows=P.map(p=>planSku(p,m,sc));
+  const c={key:m.key,label:m.label,kind:'plan',days:m.days,rows};
+  ADD.forEach(k=>c[k]=rows.reduce((s,r)=>s+(r[k]||0),0));
+  const fr=rows.filter(r=>r.funnel);c.funnelOrders=fr.reduce((s,r)=>s+r.cart,0);
+  c.shows=fr.reduce((s,r)=>s+r.shows,0);c.views=fr.reduce((s,r)=>s+r.views,0);c.cart=c.funnelOrders;
+  c.funnelOnlyOrders=fr.reduce((s,r)=>s+r.orders,0);
+  c.orphan=c.revenue*orphanPct;
+  const col=finish(c);col.cr2=div(c.funnelOnlyOrders,c.funnelOrders);return col;
+}
+function sumCol(cols,key,label,kind){
+  const c={key,label,kind,quarter:true};
+  ADD.concat(['funnelOrders','funnelOnlyOrders','opex','interest']).forEach(k=>c[k]=cols.some(x=>ok(x[k]))?cols.reduce((s,x)=>s+(x[k]||0),0):null);
+  c.opexLines={};OPEX_LINES.forEach(l=>c.opexLines[l.id]=cols.reduce((s,x)=>s+x.opexLines[l.id],0));
+  const r=finish(c);r.cr2=div(c.funnelOnlyOrders,c.funnelOrders);
+  if(cols.every(x=>x.buyoutFixed!=null)&&cols.length)r.buyout=div(cols.reduce((s,x)=>s+x.orders*x.buyoutFixed,0),c.orders);
+  return r;
+}
+function model(){
+  const fact=FACT.map(factCol),plan=PLAN_MONTHS.map(m=>planCol(m));
+  const factQ=PLAN_MONTHS.map(m=>FACT.find(f=>f.key===m.key)).filter(Boolean).map(factCol);
+  return {fact,plan,factQ};
+}
+
+// ---------- общий рендер таблиц ----------
+let showShares=!!state.showShares,showDelta=!!state.showDelta;
+function fmtVal(r,v){
+  if(r.f==='pct')return pct(v);if(r.f==='int')return int(v);if(r.f==='dec')return dec(v);return money(v);
+}
+function cellHTML(r,c,prev){
+  const v=r.get?r.get(c):c[r.k];
+  let s=fmtVal(r,v);
+  if(r.signed&&v<0)s='<span class="neg">'+s+'</span>';
+  if(showShares&&!r.f&&c.revenue&&r.k!=='revenue'&&ok(v))s+='<span class="share">'+pct(v/c.revenue)+' доходов</span>';
+  if(showDelta&&prev&&r.f!=='pct'&&ok(v)){const pv=r.get?r.get(prev):prev[r.k];
+    if(ok(pv)&&pv!==0){const d=(v-pv)/Math.abs(pv),good=r.exp?d<=0:d>=0;s+='<span class="share '+(good?'pos':'neg')+'">'+(d>=0?'+':'−')+Math.abs(d*100).toFixed(0)+'% к '+esc(prev.label.split(' ')[0].toLowerCase())+'</span>'}}
+  if(showDelta&&prev&&r.f==='pct'&&ok(v)){const pv=r.get?r.get(prev):prev[r.k];if(ok(pv)){const d=(v-pv)*100;s+='<span class="share">'+(d>=0?'+':'−')+Math.abs(d).toFixed(1).replace('.',',')+' п.п.</span>'}}
+  return s;
+}
+function renderTable(id,cols,rows,opts){
+  opts=opts||{};
+  const cls=c=>[c.kind==='plan'?'plan':'',c.quarter?'q':'',c.dim?'dim':''].join(' ');
+  const head='<thead><tr><th>'+(opts.corner||'₽')+'</th>'+cols.map(c=>'<th class="'+cls(c)+'">'+esc(c.label)+(c.sub!==undefined?'<span class="share">'+esc(c.sub)+'</span>':'<span class="share">'+(c.kind==='plan'?'план':c.kind==='fact'?'факт':c.kind==='pct'?'':'')+'</span>')+'</th>').join('')+'</tr></thead>';
+  const body=rows.map(r=>{
+    if(r.sec)return '<tr class="sec"><td colspan="'+(cols.length+1)+'">'+esc(r.sec)+'</td></tr>';
+    return '<tr class="'+(r.cls||'')+'"><td>'+esc(r.l)+'</td>'+cols.map((c,i)=>'<td class="'+cls(c)+'">'+(c.cell?c.cell(r):cellHTML(r,c,opts.delta&&!c.quarter?c.prev:null))+'</td>').join('')+'</tr>'}).join('');
+  document.getElementById(id).innerHTML=head+'<tbody>'+body+'</tbody>';
+}
+const OPEX_ROWS=OPEX_LINES.map(o=>({l:o.label,cls:'sub',exp:1,get:c=>c.opexLines?c.opexLines[o.id]:null}));
+const PNL_ROWS=[
+  {k:'revenue',l:'Доходы итого',cls:'total'},
+  {k:'act',l:'Реализация по Акту',cls:'sub'},
+  {k:'points',l:'Баллы Ozon за скидки',cls:'sub'},
+  {k:'loyalty',l:'Программы лояльности',cls:'sub'},
+  {l:'Реализация до СПП (справочно)',cls:'sub',get:c=>c.grossBefore},
+  {l:'СПП — скидка WB (справочно)',cls:'sub',exp:1,get:c=>c.discount},
+  {k:'variable',l:'Переменные расходы',cls:'total',exp:1},
+  {k:'cogs',l:'Себестоимость',cls:'sub',exp:1},
+  {k:'commission',l:'Комиссия Ozon',cls:'sub',exp:1},
+  {k:'logistics',l:'Логистика',cls:'sub',exp:1},
+  {k:'ads',l:'Реклама',cls:'sub',exp:1},
+  {k:'other',l:'Прочие услуги Ozon',cls:'sub',exp:1},
+  {k:'orphan',l:'Ozon без привязки к товару',cls:'sub',exp:1},
+  {l:'в т.ч. Эквайринг',cls:'sub',exp:1,get:c=>c.otherLines?c.otherLines.acq:null},
+  {l:'в т.ч. Хранение',cls:'sub',exp:1,get:c=>c.otherLines?c.otherLines.stor:null},
+  {l:'в т.ч. Платная приёмка',cls:'sub',exp:1,get:c=>c.otherLines?c.otherLines.accept:null},
+  {l:'в т.ч. Штрафы',cls:'sub',exp:1,get:c=>c.otherLines?c.otherLines.fine:null},
+  {l:'в т.ч. Транзитные поставки',cls:'sub',exp:1,get:c=>c.otherLines?c.otherLines.transit:null},
+  {l:'в т.ч. Подписка «Джем»',cls:'sub',exp:1,get:c=>c.otherLines?c.otherLines.jam:null},
+  {l:'в т.ч. Отзывы за баллы',cls:'sub',exp:1,get:c=>c.otherLines?c.otherLines.rev:null},
+  {l:'в т.ч. Удержания за баллы лояльности',cls:'sub',exp:1,get:c=>c.otherLines?c.otherLines.loyal:null},
+  {l:'в т.ч. Прочие удержания',cls:'sub',exp:1,get:c=>c.otherLines?c.otherLines.etc:null},
+  {k:'contribution',l:'Маржинальный доход',cls:'total',signed:1},
+  {l:'% маржинального дохода',cls:'pct',f:'pct',get:c=>div(c.contribution,c.revenue)},
+  {k:'opex',l:'Операционные расходы',cls:'total',exp:1},
+  ...OPEX_ROWS,
+  {k:'ebitda',l:'EBITDA',cls:'total',signed:1},
+  {k:'tax',l:'НДС ОСНО: (реализация − себестоимость) × 22%',exp:1},
+  {k:'interest',l:'Проценты по кредитам',exp:1},
+  {k:'net',l:'Чистая прибыль',cls:'total',signed:1},
+  {k:'margin',l:'Маржа (ЧП / доходы)',cls:'pct',f:'pct'},
+  {k:'roi',l:'ROI (ЧП / себестоимость)',cls:'pct',f:'pct'},
+  {k:'drr',l:'ДРР (реклама / доходы)',cls:'pct',f:'pct'},
+];
+
+// ---------- графики ----------
+function barChart(id,items){
+  const W=820,H=220,PD={l:56,r:8,t:10,b:28};
+  const max=Math.max(1,...items.map(i=>Math.max(i.a,i.b))),min=Math.min(0,...items.map(i=>i.b));
+  const y=v=>PD.t+(max-v)/(max-min)*(H-PD.t-PD.b);
+  const gw=(W-PD.l-PD.r)/items.length,bw=Math.min(34,gw*.32);
+  let g='';
+  for(let k=0;k<=4;k++){const v=min+(max-min)*k/4,yy=y(v);g+='<line x1="'+PD.l+'" x2="'+(W-PD.r)+'" y1="'+yy+'" y2="'+yy+'" stroke="var(--line)"/><text x="'+(PD.l-6)+'" y="'+(yy+4)+'" text-anchor="end" font-size="11" fill="var(--muted)">'+(Math.abs(v)>=1e6?(v/1e6).toFixed(1).replace('.',',')+' млн':Math.round(v/1e3)+' тыс')+'</text>'}
+  items.forEach((it,i)=>{
+    const x=PD.l+gw*i+gw/2,ya=y(it.a),yb=y(it.b),y0=y(0);
+    g+='<rect x="'+(x-bw-1)+'" y="'+ya+'" width="'+bw+'" height="'+Math.max(0,y0-ya)+'" rx="3" fill="'+(it.plan?'var(--plan)':'var(--accent)')+'"><title>'+esc(it.label)+': доходы '+money(it.a)+' ₽</title></rect>';
+    g+='<rect x="'+(x+1)+'" y="'+Math.min(yb,y0)+'" width="'+bw+'" height="'+Math.abs(y0-yb)+'" rx="3" fill="'+(it.b<0?'var(--bad)':'var(--good)')+'" opacity="'+(it.plan?.55:1)+'"><title>'+esc(it.label)+': чистая прибыль '+money(it.b)+' ₽</title></rect>';
+    g+='<text x="'+x+'" y="'+(H-8)+'" text-anchor="middle" font-size="11" fill="var(--muted)">'+esc(it.label)+'</text>';
+  });
+  document.getElementById(id).innerHTML='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Доходы и чистая прибыль">'+g+'</svg>';
+}
+
+// ---------- обзор ----------
+function renderOverview(M){
+  const c=M.fact[M.fact.length-1],p=M.fact[M.fact.length-2],pl=M.plan[0];
+  document.getElementById('overviewSub').textContent='Последний месяц факта — '+c.label.toLowerCase()+', план — '+QLABEL+'.';
+  const vs=(a,b)=>{const d=div(a-b,Math.abs(b));return !ok(d)||!p?'':(d>=0?'<span class="pos">+':'<span class="neg">−')+Math.abs(d*100).toFixed(0)+'%</span> к '+esc(p.label.split(' ')[0].toLowerCase())};
+  const card=(k,v,h)=>'<div class="card"><div class="k">'+k+'</div><div class="v">'+v+'</div><div class="h">'+h+'</div></div>';
+  const o=accSum('orderedQty'),rt=accSum('returnedQty');
+  document.getElementById('cards').innerHTML=
+    card('Доходы, '+esc(c.label.toLowerCase()),money(c.revenue)+' ₽',vs(c.revenue,p&&p.revenue))+
+    card('Чистая прибыль',money(c.net)+' ₽',vs(c.net,p&&p.net)+(c.opex?'':' · без опер. расходов'))+
+    card('Маржа',pct(c.margin),'ЧП / доходы')+
+    card('ROI',pct(c.roi),'ЧП / себестоимость')+
+    card('ДРР',pct(c.drr),'реклама / доходы')+
+    card('% выкупа',pct(BUYOUT_ACC),nf.format(o)+' заказано, '+nf.format(rt)+' отмен и возвратов')+
+    card('План: '+esc(pl.label.toLowerCase()),money(pl.revenue)+' ₽','чистая прибыль '+money(pl.net)+' ₽');
+  // выводы
+  const ins=[],skuRows=LAST.sku.filter(r=>r.qty).map(r=>({...r,m:div(r.profit,r.revenue)}));
+  const loss=skuRows.filter(r=>r.profit<0);
+  const best=skuRows.slice().sort((a,b)=>b.profit-a.profit)[0];
+  if(best)ins.push(['good','Больше всего прибыли — '+best.article,money(best.profit)+' ₽ за '+c.label.toLowerCase()+' ('+pct(div(best.profit,skuRows.reduce((s,r)=>s+r.profit,0)))+' прибыли товаров), маржа '+pct(best.m)+'.']);
+  if(loss.length)ins.push(['bad','В минусе: '+loss.map(r=>r.article).join(', '),loss.map(r=>r.article+' '+money(r.profit)+' ₽ (реклама '+pct(div(r.ads,r.revenue))+' доходов)').join('; ')+'. Проверьте цену и рекламу на вкладке «Воронка и реклама».']);
+  if(p){const k=[['commission','Комиссия Ozon'],['logistics','Логистика'],['ads','Реклама'],['cogs','Себестоимость']]
+      .map(([key,l])=>({l,now:div(c[key],c.revenue),was:div(p[key],p.revenue)})).sort((a,b)=>Math.abs(b.now-b.was)-Math.abs(a.now-a.was))[0];
+    ins.push([k.now>k.was?'bad':'good',k.l+': '+pct(k.was)+' → '+pct(k.now)+' доходов','Самое большое изменение доли расходов между '+p.label.split(' ')[0].toLowerCase()+' и '+c.label.split(' ')[0].toLowerCase()+'.'])}
+  const pace=paceCheck(M);if(pace)ins.push(pace);
+  const risk=stockRisk(M.plan[0]);if(risk.length)ins.push(['bad','Остатка меньше чем на 30 дней: '+risk.map(r=>r.article).join(', '),'Остаток на '+STOCK_DATE+' при темпе плана: '+riskText(risk)+'. Нужна поставка, иначе план по этим товарам не выполнится.']);
+  if(!c.opex)ins.push(['','Операционные расходы не внесены','Чистая прибыль пока без аренды, зарплат и сервисов. Внесите их на вкладке «Операционные расходы».']);
+  document.getElementById('insights').innerHTML=ins.map(([t,h,b])=>'<div class="insight '+t+'"><b>'+esc(h)+'</b>'+esc(b)+'</div>').join('');
+  barChart('overviewChart',[...M.fact,...M.plan].map(x=>({label:x.label.split(' ')[0],a:x.revenue,b:x.net,plan:x.kind==='plan'})));
+}
+function paceCheck(M){
+  const a7=D.analytics['7'];if(!a7)return null;
+  const pl=M.plan[0],fs=P.filter(p=>p.funnel&&p.funnel['7']);
+  const fact=fs.reduce((s,p)=>s+p.funnel['7'].orders,0)/a7.days;
+  const plan=pl.rows.filter((r,i)=>P[i].funnel&&P[i].funnel['7']).reduce((s,r)=>s+r.orders,0)/pl.days;
+  if(!plan)return null;
+  const d=fact/plan-1;
+  return [d>=0?'good':'bad','Темп за последние 7 дней: '+dec(fact)+' заказов в день','План '+pl.label.toLowerCase()+' — '+dec(plan)+' в день по тем же '+fs.length+' товарам ('+(d>=0?'+':'−')+Math.abs(d*100).toFixed(0)+'%). Источник — «Аналитика» за '+a7.period+' от '+a7.made+'.'];
+}
+const STOCK_DATE=D.analytics['7']?D.analytics['7'].made:'';
+function stockRisk(pl){
+  return pl.rows.map((r,i)=>({article:r.article,days:ok(r.stock)?r.stock/(r.orders/pl.days):null})).filter(r=>ok(r.days)&&r.days<30).sort((a,b)=>a.days-b.days);
+}
+function untilDate(days){
+  const m=/^(\d\d)\.(\d\d)\.(\d{4})$/.exec(STOCK_DATE);if(!m||!ok(days))return '';
+  const d=new Date(+m[3],+m[2]-1,+m[1]+Math.floor(days));return ' (до '+String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+')';
+}
+const riskText=risk=>risk.map(r=>r.article+' — '+int(r.days)+' дн.'+untilDate(r.days)).join('; ');
+
+// ---------- P&L по месяцам ----------
+function renderMonth(M){
+  const fq=sumCol(M.fact.filter(c=>quarterOf(c.key)===quarterOf(LAST.key)&&c.key.slice(0,4)===LAST.key.slice(0,4)),'qf',quarterOf(LAST.key)+' кв. '+LAST.key.slice(0,4),'fact');
+  const pq=sumCol(M.plan,'qp',QLABEL,'plan');
+  const cols=[...M.fact,fq,...M.plan,pq];
+  cols.forEach((c,i)=>{if(!c.quarter){const prev=cols.slice(0,i).filter(x=>!x.quarter).pop();c.prev=prev}});
+  renderTable('monthTable',cols,PNL_ROWS,{delta:true});
+}
+
+// ---------- план спринта ----------
+const SPRINT_ROWS=[
+  {sec:'Воронка (товары с данными «Аналитики»)'},
+  {k:'shows',l:'Показы',f:'int'},
+  {k:'ctr',l:'CTR (просмотры карточки / показы)',cls:'pct',f:'pct'},
+  {k:'views',l:'Просмотры карточки',f:'int'},
+  {k:'cr1',l:'CR в корзину',cls:'pct',f:'pct'},
+  {k:'cart',l:'Добавления в корзину',f:'int'},
+  {k:'cr2',l:'CR из корзины в заказ',cls:'pct',f:'pct'},
+  {sec:'Продажи (все товары)'},
+  {k:'orders',l:'Заказы, шт',f:'int',cls:'total'},
+  {k:'check',l:'Средний чек покупателя',f:'int'},
+  {k:'ordersRub',l:'Сумма заказов'},
+  {k:'buyout',l:'% выкупа',cls:'pct',f:'pct'},
+  {k:'bought',l:'Выкуплено, шт',f:'int'},
+  {k:'revenue',l:'Доходы (с баллами Ozon)',cls:'total'},
+  {sec:'Юнит-экономика'},
+  {k:'cogs',l:'Себестоимость',exp:1},
+  {l:'% себестоимости',cls:'pct',f:'pct',get:c=>div(c.cogs,c.revenue)},
+  {k:'commission',l:'Комиссия Ozon',exp:1},
+  {k:'logistics',l:'Логистика',exp:1},
+  {l:'Прочие услуги Ozon (вкл. без привязки)',exp:1,get:c=>c.other+c.orphan},
+  {k:'ads',l:'Реклама',exp:1},
+  {k:'drrOrders',l:'ДРР от суммы заказов',cls:'pct',f:'pct'},
+  {k:'contribution',l:'Маржинальная прибыль',cls:'total',signed:1},
+  {l:'Маржинальность',cls:'pct',f:'pct',get:c=>div(c.contribution,c.revenue)},
+  {sec:'Прибыль'},
+  {k:'opex',l:'Операционные расходы',exp:1},
+  {k:'tax',l:'НДС ОСНО',exp:1},
+  {k:'interest',l:'Проценты по кредитам',exp:1},
+  {k:'net',l:'Чистая прибыль',cls:'total',signed:1},
+  {k:'margin',l:'Маржа (ЧП / доходы)',cls:'pct',f:'pct'},
+  {k:'roi',l:'ROI (ЧП / себестоимость)',cls:'pct',f:'pct'},
+];
+function renderSprint(M){
+  const a=D.analytics[state.funnelSrc];
+  const nf_=P.filter(p=>skuParams(p).funnel).length;
+  document.getElementById('sprintSub').innerHTML='План '+esc(QLABEL)+' по месяцам из воронки: '+nf_+' из '+P.length+' товаров — по отчёту Ozon «Аналитика»'+(a?' ('+esc(a.period)+', от '+esc(a.made)+')':'')+', остальные — по скорости продаж '+esc(LAST.label.toLowerCase())+'. Доходы на 1 шт, себестоимость и доли расходов — из юнит-экономики '+esc(LAST.label.toLowerCase())+'.';
+  const pq=sumCol(M.plan,'qp',QLABEL,'plan');pq.sub='план квартала';
+  const fq=M.factQ.length?sumCol(M.factQ,'qf','Факт','fact'):null;
+  const done={key:'done',label:'% выполнения',kind:'pct',sub:'факт / план',cell:r=>{
+    if(!fq||r.sec||r.cls==='pct')return '—';const f=r.get?r.get(fq):fq[r.k],p=r.get?r.get(pq):pq[r.k];return ok(f)&&ok(p)&&p?pct(f/p,0):'—'}};
+  const factCol_={key:'fq',label:'Факт квартала',kind:'fact',sub:fq?'':'нет данных',cell:r=>fq?cellHTML(r,fq):'—'};
+  const ref=M.fact[M.fact.length-1];const refCol=Object.assign(Object.create(ref),{dim:true,sub:'факт, справочно'});
+  const cols=[pq,...M.plan.map(c=>Object.assign(c,{sub:'план'})),factCol_,done,refCol];
+  renderTable('quarterTable',cols,SPRINT_ROWS);
+  const ins=[];const pace=paceCheck(M);if(pace)ins.push(pace);
+  const risk=stockRisk(M.plan[0]);if(risk.length)ins.push(['bad','Остатка меньше чем на 30 дней','Остаток на '+STOCK_DATE+' при темпе плана: '+riskText(risk)+'. Без поставки план по этим товарам не выполнится.']);
+  document.getElementById('sprintInsights').innerHTML=ins.map(([t,h,b])=>'<div class="insight '+t+'"><b>'+esc(h)+'</b>'+esc(b)+'</div>').join('');
+  renderLevers();renderSkuPlan(M);
+}
+function renderLevers(){
+  const L=[{id:'traffic',l:'Трафик (показы, заказы товаров без воронки), % к основе'},{id:'price',l:'Цена, % к '+LAST.label.split(' ')[0].toLowerCase()},{id:'ads',l:'Рекламный бюджет (ДРР), % к '+LAST.label.split(' ')[0].toLowerCase()}];
+  document.getElementById('levers').innerHTML='<thead><tr><th>Рычаг</th>'+PLAN_MONTHS.map(m=>'<th class="plan">'+esc(m.label)+'</th>').join('')+'</tr></thead><tbody>'+
+    L.map(l=>'<tr><td>'+esc(l.l)+'</td>'+PLAN_MONTHS.map(m=>'<td class="plan"><input class="num" data-lever="'+m.key+'|'+l.id+'" inputmode="decimal" value="'+fmtIn(lever(m.key,l.id),1)+'" aria-label="'+esc(l.l+', '+m.label)+'"></td>').join('')+'</tr>').join('')+'</tbody>';
+}
+function renderSkuPlan(M){
+  const m=M.plan[0];
+  const head=['Товар','Показы в день','CTR, %','CR в корзину, %','CR в заказ, %','Выкуп, %','Выкуплено в день','Заказы в день','Остаток на '+STOCK_DATE+', шт','Хватит, дн.','Заказы: '+m.label.split(' ')[0].toLowerCase(),'Доходы','Прибыль товара','Маржа'];
+  const rows=P.map((p,i)=>{
+    const q=skuParams(p),r=m.rows[i],days=ok(r.stock)?r.stock/(r.orders/m.days):null;
+    const inp=(k,v,d,isPct)=>'<input class="num" data-sku="'+esc(p.article)+'|'+k+'|'+(isPct?1:0)+'" inputmode="decimal" value="'+fmtIn(isPct?v*100:v,d)+'"'+(ok(v)?'':' disabled')+'>';
+    const dis='<input class="num" disabled value="—">';
+    return '<tr><td title="'+esc(p.name)+'">'+esc(p.article)+(q.funnel?'':' <span class="tag">без воронки</span>')+(p.costAssumed?' <span class="tag bad" title="В дашборде себестоимость 0 — взята из прошлого месяца">себес из прошлого месяца</span>':'')+'</td>'+
+      (q.funnel?'<td>'+inp('showsDay',q.showsDay,0)+'</td><td>'+inp('ctr',q.ctr,2,1)+'</td><td>'+inp('cr1',q.cr1,1,1)+'</td><td>'+inp('cr2',q.cr2,1,1)+'</td><td>'+inp('buyout',q.buyout,1,1)+'</td><td>'+dec(r.bought/m.days)+'</td>'
+        :'<td>'+dis+'</td><td>'+dis+'</td><td>'+dis+'</td><td>'+dis+'</td><td>'+pct(q.buyout)+'</td><td>'+inp('boughtDay',q.boughtDay,1)+'</td>')+
+      '<td>'+dec(r.orders/m.days)+'</td><td>'+int(r.stock)+'</td><td class="'+(ok(days)&&days<30?'neg':'')+'">'+int(days)+'</td><td>'+int(r.orders)+'</td><td>'+money(r.revenue)+'</td><td class="'+(r.profit<0?'neg':'')+'">'+money(r.profit)+'</td><td>'+pct(div(r.profit,r.revenue))+'</td></tr>'});
+  const tot=m.rows.reduce((s,r)=>({o:s.o+r.orders,b:s.b+r.bought,rv:s.rv+r.revenue,pf:s.pf+r.profit}),{o:0,b:0,rv:0,pf:0});
+  document.getElementById('skuPlanTable').innerHTML='<thead><tr>'+head.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.join('')+
+    '<tr class="total"><td>Итого</td><td colspan="5"></td><td>'+dec(tot.b/m.days)+'</td><td>'+dec(tot.o/m.days)+'</td><td></td><td></td><td>'+int(tot.o)+'</td><td>'+money(tot.rv)+'</td><td>'+money(tot.pf)+'</td><td>'+pct(div(tot.pf,tot.rv))+'</td></tr></tbody>';
+}
+
+// ---------- план по дням ----------
+const DAILY_ROWS=[
+  {k:'shows',l:'Показы',f:'int'},{k:'views',l:'Просмотры карточки',f:'int'},{k:'cart',l:'Добавления в корзину',f:'int'},
+  {k:'orders',l:'Заказы, шт',f:'int',cls:'total'},{k:'ordersRub',l:'Сумма заказов'},{k:'bought',l:'Выкуплено, шт',f:'int'},
+  {k:'revenue',l:'Доходы',cls:'total'},{k:'cogs',l:'Себестоимость',exp:1},{k:'commission',l:'Комиссия Ozon',exp:1},
+  {k:'logistics',l:'Логистика',exp:1},{k:'ads',l:'Реклама',exp:1},{k:'other',l:'Прочие услуги Ozon',exp:1},
+  {k:'contribution',l:'Маржинальная прибыль',cls:'total',signed:1},{k:'opex',l:'Операционные расходы',exp:1},
+  {k:'tax',l:'НДС ОСНО',exp:1},{k:'net',l:'Чистая прибыль',cls:'total',signed:1},{k:'margin',l:'Маржа',cls:'pct',f:'pct'},
+];
+function dayCol(src,share,label,kind){
+  const c={label,kind,quarter:false};ADD.forEach(k=>c[k]=ok(src[k])?src[k]*share:null);
+  c.other=(src.other||0)*share+(src.orphan||0)*share;c.orphan=0;
+  c.opex=(src.opex||0)*share;c.interest=(src.interest||0)*share;
+  c.variable=c.cogs+c.commission+c.logistics+c.ads+c.other;c.contribution=c.revenue-c.variable;
+  c.net=c.contribution-c.opex-c.tax-c.interest;c.margin=div(c.net,c.revenue);return c;
+}
+function accDayCol(d,mOpex,mInt,days,label){
+  const c={label,kind:'fact',shows:null,views:null,cart:null,ordersRub:null,orders:d.orderedQty,bought:null,
+    revenue:d.act+d.points+d.loyalty,cogs:d.cogs,commission:d.commission,logistics:d.logistics,ads:d.ads,other:d.other};
+  c.opex=mOpex/days;c.interest=mInt/days;c.tax=Math.max(0,(d.act-d.cogs)*VAT);
+  c.variable=c.cogs+c.commission+c.logistics+c.ads+c.other;c.contribution=c.revenue-c.variable;
+  c.net=c.contribution-c.opex-c.tax-c.interest;c.margin=div(c.net,c.revenue);return c;
+}
+function renderDaily(M){
+  const sel=document.getElementById('dailyMonth');
+  if(!sel.options.length){
+    sel.innerHTML=PLAN_MONTHS.map(m=>'<option value="'+m.key+'">'+esc(m.label)+' — план'+(FACT.find(f=>f.key===m.key)?' и факт':'')+'</option>').join('')+
+      (PLAN_MONTHS.find(m=>m.key===ACC.month)?'':'<option value="'+ACC.month+'">'+esc(monthLabel(ACC.month))+' — факт по Начислениям</option>');
+    sel.value=state.dailyMonth&&[...sel.options].some(o=>o.value===state.dailyMonth)?state.dailyMonth:PLAN_MONTHS[0].key;
+    sel.onchange=()=>{state.dailyMonth=sel.value;save();renderDaily(model())};
+  }
+  const key=sel.value,days=daysIn(key),plan=M.plan.find(c=>c.key===key);
+  const hasFact=ACC.month===key;
+  const mOpex=opexOf(key),mInt=interestOf(key);
+  const cols=[];
+  if(plan){const t=dayCol(plan,1,'Месяц','plan');t.sub='план';t.quarter=true;cols.push(t)}
+  if(hasFact){const sum={};['orderedQty','act','points','loyalty','cogs','commission','logistics','ads','other'].forEach(k=>sum[k]=accSum(k));
+    const t=accDayCol(sum,mOpex*days,mInt*days,days,'Месяц');t.sub='факт';t.quarter=true;cols.push(t)}
+  if(plan&&hasFact){cols.push({label:'% выполнения',kind:'pct',sub:'',quarter:true,cell:r=>{const f=cols[1][r.k],p=cols[0][r.k];return r.f==='pct'||!ok(f)||!ok(p)||!p?'—':pct(f/p,0)}})}
+  for(let d=1;d<=days;d++){
+    const ds=key+'-'+String(d).padStart(2,'0'),dl=d+'.'+key.slice(5);
+    if(plan){const c=dayCol(plan,1/days,dl,'plan');c.sub='план';cols.push(c)}
+    if(hasFact){const rec=ACC.daily.find(x=>x.date===ds);if(rec){const c=accDayCol(rec,mOpex,mInt,days,dl);c.sub='факт';cols.push(c)}}
+    else if(plan){cols.push({label:dl,kind:'fact',sub:'факт',cell:()=>'—'})}
+  }
+  document.getElementById('dailySub').textContent=(plan?'План дня = план месяца / '+days+' дн. (с рычагами месяца). ':'')+
+    (hasFact?'Факт по дням — из «Начислений» Ozon (заказы = шт с «Логистикой»; себестоимость — по проданным шт). Воронки по дням в «Начислениях» нет.':'Факт по дням появится, когда будут «Начисления» за этот месяц — пересоберите страницу.');
+  renderTable('dailyTable',cols,DAILY_ROWS);
+}
+
+// ---------- воронка и реклама ----------
+function renderFunnel(){
+  const a=D.analytics[state.funnelSrc];
+  document.getElementById('funnelSub').textContent='Воронка — «Аналитика» Ozon'+(a?' ('+a.period+', от '+a.made+')':'')+'; реклама — отчёт «Аналитика продвижения» из дашборда; юнит-экономика — '+LAST.label.toLowerCase()+'.';
+  const head=['Товар','Показы в день','CTR','CR в корзину','CR в заказ','Показов на 1 заказ','% выкупа','Прибыль с 1 шт до рекламы','CPC','Заказов на 100 кликов','Заказ из кликов стоит','Прибыль с рекламного заказа','«Оплата за заказ»: заказ стоит','Вывод'];
+  const rows=P.map(p=>{
+    const q=skuParams(p),u=unitOf(p),ad=p.ads||{};
+    const before=u.price-u.cogs-u.commission-u.logistics-u.other-u.tax;
+    const cpc=div(ad.cpcSpend,ad.clicks),cpcOrder=div(ad.cpcSpend,ad.cpcQty),cpoOrder=div(ad.cpoSpend,ad.cpoQty);
+    const adProfit=ok(cpcOrder)?before*q.buyout-cpcOrder:null;
+    const per=q.funnel?1/(q.ctr*q.cr1*q.cr2):null;
+    const verdict=!ok(adProfit)?'<span class="tag">нет данных</span>':adProfit<0?'<span class="tag bad">клик не окупается</span>':adProfit<before*q.buyout*0.3?'<span class="tag bad">на грани</span>':'<span class="tag good">окупается</span>';
+    return '<tr><td title="'+esc(p.name)+'">'+esc(p.article)+'</td><td>'+(q.funnel?int(q.showsDay):'—')+'</td><td>'+(q.funnel?pct(q.ctr,2):'—')+'</td><td>'+(q.funnel?pct(q.cr1):'—')+'</td><td>'+(q.funnel?pct(q.cr2):'—')+'</td><td>'+int(per)+'</td><td>'+pct(q.buyout)+'</td><td class="'+(before<0?'neg':'')+'">'+money(before)+'</td><td>'+(ok(cpc)?dec(cpc):'—')+'</td><td>'+(ad.clicks?dec(ad.cpcQty/ad.clicks*100):'—')+'</td><td>'+money(cpcOrder)+'</td><td class="'+(adProfit<0?'neg':'')+'">'+money(adProfit)+'</td><td>'+money(cpoOrder)+'</td><td>'+verdict+'</td></tr>'});
+  document.getElementById('funnelTable').innerHTML='<thead><tr>'+head.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody>';
+  renderCalc();
+}
+function unitOf(p){
+  const r=LAST.sku.find(x=>x.article===p.article),q=r.qty;
+  const cogs=(r.costPerUnit||p.costPerUnit);
+  return {price:r.revenue/q,cogs,commission:r.commission/q,logistics:r.logistics/q,ads:r.ads/q,other:r.other/q,tax:Math.max(0,(r.act/q-cogs)*VAT)};
+}
+function renderCalc(){
+  const M=model(),m=M.plan[0];
+  const fp=P.map((p,i)=>({p,q:skuParams(p),r:m.rows[i]})).filter(x=>x.q.funnel);
+  const sh=fp.reduce((s,x)=>s+x.r.shows,0),vw=fp.reduce((s,x)=>s+x.r.views,0),ct=fp.reduce((s,x)=>s+x.r.cart,0),od=fp.reduce((s,x)=>s+x.r.orders,0),bt=fp.reduce((s,x)=>s+x.r.bought,0);
+  const rv=fp.reduce((s,x)=>s+x.r.revenue,0),pf=fp.reduce((s,x)=>s+x.r.profit+x.r.ads,0);
+  const ads=P.reduce((s,p)=>({sp:s.sp+((p.ads||{}).cpcSpend||0),cl:s.cl+((p.ads||{}).clicks||0)}),{sp:0,cl:0});
+  const def={shows:Math.round(sh/m.days*30),ctr:div(vw,sh)*100,cr1:div(ct,vw)*100,cr2:div(od,ct)*100,buyout:div(bt,od)*100,cpc:div(ads.sp,ads.cl),margin:div(pf,bt)};
+  const v=k=>state.calc[k]!=null?state.calc[k]:def[k];
+  const IN=[['shows','Показы за 30 дней',0],['ctr','CTR, %',2],['cr1','CR в корзину, %',1],['cr2','CR в заказ, %',1],['buyout','% выкупа',1],['cpc','Цена клика (CPC), ₽',2],['margin','Прибыль с 1 шт до рекламы, ₽',0]];
+  document.getElementById('calcIn').innerHTML='<thead><tr><th>Ввод</th><th>Значение</th></tr></thead><tbody>'+IN.map(([k,l,d])=>'<tr><td>'+esc(l)+'</td><td><input class="num" data-calc="'+k+'" inputmode="decimal" value="'+fmtIn(v(k),d)+'"></td></tr>').join('')+'</tbody>';
+  const views=v('shows')*v('ctr')/100,cart=views*v('cr1')/100,orders=cart*v('cr2')/100,bought=orders*v('buyout')/100;
+  const clicksPerOrder=1/(v('cr1')/100*v('cr2')/100),cac=clicksPerOrder*v('cpc'),profitAd=v('margin')*v('buyout')/100-cac;
+  const OUT=[['Просмотры карточки',int(views)],['Корзина',int(cart)],['Заказы',int(orders)],['Заказы в день',dec(orders/30)],['Выкуплено',int(bought)],
+    ['Показов на 1 заказ',int(1/(v('ctr')/100*v('cr1')/100*v('cr2')/100))],['Кликов на 1 заказ',dec(clicksPerOrder)],
+    ['Стоимость привлечения заказа (клики × CPC)',money(cac)+' ₽'],['Прибыль с заказа через рекламу',(profitAd<0?'<span class="neg">':'<span>')+money(profitAd)+' ₽</span>']];
+  document.getElementById('calcOut').innerHTML='<thead><tr><th>Результат</th><th></th></tr></thead><tbody>'+OUT.map(([l,x])=>'<tr><td>'+esc(l)+'</td><td>'+x+'</td></tr>').join('')+'</tbody>';
+}
+
+// ---------- юнит-экономика ----------
+function renderUnit(){
+  document.getElementById('unitSub').textContent='Деление сумм товара за '+LAST.label.toLowerCase()+' на выкупленные штуки. Справа — прибыль на 1 шт по всем месяцам факта.';
+  const head=['Товар','Шт','Доход на 1 шт','Себестоимость','Комиссия','Логистика','Реклама','Прочее Ozon','НДС','Прибыль на 1 шт','Маржа',...FACT.map(m=>'Прибыль на 1 шт, '+m.label.split(' ')[0].toLowerCase())];
+  const rows=LAST.sku.filter(r=>r.qty).sort((a,b)=>b.profit/b.qty-a.profit/a.qty).map(r=>{
+    const q=r.qty,pp=r.profit/q;
+    const hist=FACT.map(m=>{const x=m.sku.find(s=>s.article===r.article);return x&&x.qty?x.profit/x.qty:null});
+    return '<tr><td title="'+esc(r.name)+'">'+esc(r.article)+(r.costPerUnit?'':' <span class="tag bad">себес 0</span>')+'</td><td>'+int(q)+'</td>'+
+      [r.revenue,r.cogs,r.commission,r.logistics,r.ads,r.other,r.tax].map(x=>'<td>'+money(x/q)+'</td>').join('')+
+      '<td class="'+(pp<0?'neg':'')+'"><b>'+money(pp)+'</b></td><td>'+pct(div(r.profit,r.revenue))+'</td>'+hist.map(x=>'<td class="'+(x<0?'neg':'')+'">'+money(x)+'</td>').join('')+'</tr>'});
+  document.getElementById('unitTable').innerHTML='<thead><tr>'+head.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody>';
+  renderSku();
+}
+function renderSku(){
+  const sel=document.getElementById('skuMonth');
+  if(!sel.options.length){sel.innerHTML=FACT.map(m=>'<option value="'+m.key+'">'+esc(m.label)+'</option>').join('');sel.value=LAST.key;sel.onchange=renderSku}
+  const m=FACT.find(x=>x.key===sel.value);
+  const rows=m.sku.filter(r=>r.qty||r.revenue).sort((a,b)=>b.profit-a.profit);
+  const tp=rows.reduce((s,r)=>s+r.profit,0);
+  const H=['Товар','Шт','Доходы','Себестоимость','Комиссия','Логистика','Реклама','Прочее Ozon','НДС','Прибыль','Маржа','ROI','Доля прибыли'];
+  const line=r=>'<td title="'+esc(r.name)+'">'+esc(r.article)+'</td><td>'+int(r.qty)+'</td>'+[r.revenue,r.cogs,r.commission,r.logistics,r.ads,r.other,r.tax].map(v=>'<td>'+money(v)+'</td>').join('')+
+    '<td class="'+(r.profit<0?'neg':'')+'">'+money(r.profit)+'</td><td>'+pct(div(r.profit,r.revenue))+'</td><td>'+pct(div(r.profit,r.cogs))+'</td><td>'+pct(div(r.profit,tp))+'</td>';
+  const T={article:'Итого',qty:0,revenue:0,cogs:0,commission:0,logistics:0,ads:0,other:0,tax:0,profit:0};
+  rows.forEach(r=>['qty','revenue','cogs','commission','logistics','ads','other','tax','profit'].forEach(k=>T[k]+=r[k]));
+  document.getElementById('skuTable').innerHTML='<thead><tr>'+H.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+line(r)+'</tr>').join('')+'<tr class="total">'+line(T)+'</tr></tbody>';
+}
+
+// ---------- безубыточность и «что если» ----------
+const SLIDERS=[{id:'traffic',l:'Трафик и заказы'},{id:'conv',l:'Конверсия в корзину'},{id:'price',l:'Цена'},{id:'ads',l:'Рекламный бюджет'},{id:'cost',l:'Себестоимость'}];
+function renderWhatif(){
+  const sel=document.getElementById('whatifMonth');
+  if(!sel.options.length){sel.innerHTML=PLAN_MONTHS.map(m=>'<option value="'+m.key+'">'+esc(m.label)+'</option>').join('');sel.value=PLAN_MONTHS[0].key;sel.onchange=renderWhatif}
+  const box=document.getElementById('sliders');
+  if(!box.innerHTML){box.innerHTML=SLIDERS.map(s=>'<div class="slider"><label for="sl_'+s.id+'">'+esc(s.l)+'</label><input type="range" id="sl_'+s.id+'" min="-30" max="30" step="1" value="'+(state.whatif[s.id]||0)+'"><output id="o_'+s.id+'"></output></div>').join('')+'<button class="btn" type="button" id="slReset" style="margin-top:8px">Сбросить</button>';
+    SLIDERS.forEach(s=>document.getElementById('sl_'+s.id).oninput=e=>{state.whatif[s.id]=+e.target.value;save();renderWhatif()});
+    document.getElementById('slReset').onclick=()=>{state.whatif={};save();SLIDERS.forEach(s=>document.getElementById('sl_'+s.id).value=0);renderWhatif()}}
+  SLIDERS.forEach(s=>{const v=state.whatif[s.id]||0;document.getElementById('o_'+s.id).textContent=(v>0?'+':v<0?'−':'')+Math.abs(v)+'%'});
+  const m=PLAN_MONTHS.find(x=>x.key===sel.value);
+  const sc={};SLIDERS.forEach(s=>sc[s.id]=1+(state.whatif[s.id]||0)/100);
+  const base=planCol(m),alt=planCol(m,sc);
+  const R=[['orders','Заказы, шт','int'],['revenue','Доходы'],['cogs','Себестоимость'],['ads','Реклама'],['contribution','Маржинальный доход'],['opex','Операционные расходы'],['net','Чистая прибыль'],['margin','Маржа','pct'],['roi','ROI','pct']];
+  document.getElementById('whatifTable').innerHTML='<thead><tr><th>'+esc(m.label)+'</th><th>План</th><th>Сценарий</th><th>Разница</th></tr></thead><tbody>'+
+    R.map(([k,l,f])=>{const a=base[k],b=alt[k],F=f==='pct'?pct:f==='int'?int:money;const d=f==='pct'?(ok(a)&&ok(b)?((b-a)*100).toFixed(1).replace('.',',')+' п.п.':'—'):F(b-a);
+      return '<tr class="'+(k==='net'?'total':'')+'"><td>'+l+'</td><td>'+F(a)+'</td><td>'+F(b)+'</td><td class="'+((b-a)<0?'neg':(b-a)>0?'pos':'')+'">'+d+'</td></tr>'}).join('')+'</tbody>';
+  // точка безубыточности: постоянные = опер. расходы + проценты; переменная доля = (переменные + НДС) / доходы
+  const F=base.opex+base.interest,v=(base.variable+base.tax)/base.revenue,cm=1-v;
+  const bepRev=F/cm,perOrder=base.revenue/base.orders;
+  document.getElementById('bep').innerHTML=!F?'<div class="warn">Постоянных расходов нет: операционные расходы и проценты за '+esc(m.label.toLowerCase())+' не внесены — любой объём продаж в плюсе, пока доля переменных расходов меньше 100% (сейчас '+pct(v)+'). Внесите расходы на вкладке «Операционные расходы».</div>':
+    '<div class="cards"><div class="card"><div class="k">Постоянные расходы месяца</div><div class="v">'+money(F)+' ₽</div><div class="h">операционные + проценты</div></div>'+
+    '<div class="card"><div class="k">Доход, который остаётся с 1 ₽ продаж</div><div class="v">'+money(cm*100)+' коп.</div><div class="h">после переменных расходов и НДС</div></div>'+
+    '<div class="card"><div class="k">Точка безубыточности</div><div class="v">'+money(bepRev)+' ₽</div><div class="h">≈ '+int(bepRev/perOrder)+' заказов, '+dec(bepRev/perOrder/m.days)+' в день</div></div>'+
+    '<div class="card"><div class="k">Запас прочности плана</div><div class="v">'+pct(div(base.revenue-bepRev,base.revenue),0)+'</div><div class="h">насколько план выше точки</div></div></div>'+
+    '<div class="formula">Точка безубыточности = постоянные расходы / (1 − (переменные расходы + НДС) / доходы).</div>';
+}
+
+// ---------- недели ----------
+const WEEK_ROWS=[
+  {k:'orders',l:'Заказано, шт',f:'int'},{k:'returned',l:'Отмены и возвраты, шт',f:'int'},
+  {l:'% выкупа',cls:'pct',f:'pct',get:c=>ok(c.orders)&&c.orders?(c.orders-c.returned)/c.orders:null},
+  {k:'revenue',l:'Доходы итого',cls:'total'},{k:'act',l:'Реализация (в неделях — по Начислениям)',cls:'sub'},
+  {k:'points',l:'Баллы Ozon за скидки',cls:'sub'},{k:'loyalty',l:'Программы лояльности',cls:'sub'},
+  {k:'cogs',l:'Себестоимость',cls:'sub',exp:1},{k:'commission',l:'Комиссия Ozon',cls:'sub',exp:1},{k:'logistics',l:'Логистика',cls:'sub',exp:1},
+  {k:'ads',l:'Реклама',cls:'sub',exp:1},{k:'other',l:'Прочие услуги Ozon (вкл. без привязки к товару)',cls:'sub',exp:1},
+  {k:'contribution',l:'Маржинальный доход',cls:'total',signed:1},{k:'opex',l:'Операционные расходы',exp:1},
+  {k:'ebitda',l:'EBITDA',cls:'total',signed:1},{k:'tax',l:'НДС ОСНО',exp:1},{k:'interest',l:'Проценты по кредитам',exp:1},
+  {k:'net',l:'Чистая прибыль',cls:'total',signed:1},{k:'margin',l:'Маржа',cls:'pct',f:'pct'},{k:'roi',l:'ROI',cls:'pct',f:'pct'},{k:'drr',l:'ДРР',cls:'pct',f:'pct'},
+];
+function wk(w,mOpex,mInt,dim,label){
+  const c={label,kind:'fact',orders:w.orderedQty,returned:w.returnedQty,act:w.act,points:w.points,loyalty:w.loyalty,cogs:w.cogs,
+    commission:w.commission,logistics:w.logistics,ads:w.ads,other:w.other,revenue:w.act+w.points+w.loyalty};
+  c.opex=mOpex*w.days/dim;c.interest=mInt*w.days/dim;c.tax=Math.max(0,(c.act-c.cogs)*VAT);
+  c.variable=c.cogs+c.commission+c.logistics+c.ads+c.other;c.contribution=c.revenue-c.variable;c.ebitda=c.contribution-c.opex;
+  c.net=c.ebitda-c.tax-c.interest;c.margin=div(c.net,c.revenue);c.roi=div(c.net,c.cogs);c.drr=div(c.ads,c.revenue);return c;
+}
+function renderWeek(){
+  const month=FACT.find(m=>m.key===ACC.month),dim=daysIn(ACC.month);
+  document.getElementById('weekTitle').textContent='P&L по неделям: '+monthLabel(ACC.month).toLowerCase();
+  const mOpex=opexOf(ACC.month),mInt=interestOf(ACC.month);
+  const fd=s=>{const [,m,d]=s.split('-');return +d+'.'+m};
+  const cols=ACC.weeks.map(w=>wk(w,mOpex,mInt,dim,fd(w.from)+'–'+fd(w.to)));
+  const T={days:dim};['orderedQty','returnedQty','act','points','loyalty','cogs','commission','logistics','ads','other'].forEach(k=>T[k]=ACC.weeks.reduce((s,w)=>s+w[k],0));
+  const tot=wk(T,mOpex,mInt,dim,'Итого по неделям');tot.quarter=true;cols.push(tot);
+  if(month){const a=factCol(month);a.label='Месяц по Акту';a.kind='plan';a.sub='из дашборда';a.other=a.other+a.orphan;a.returned=null;a.orders=null;cols.push(a)}
+  renderTable('weekTable',cols,WEEK_ROWS);
+  barChart('weekChart',cols.slice(0,ACC.weeks.length).map(c=>({label:c.label,a:c.revenue,b:c.net})));
+}
+
+// ---------- опер. расходы ----------
+function renderOpex(){
+  const keys=[...FACT.map(m=>({key:m.key,label:m.label,kind:'факт'})),...PLAN_MONTHS.map(p=>({key:p.key,label:p.label,kind:'план'}))];
+  const lines=[...OPEX_LINES,{id:'interest',label:'Проценты по кредитам (не тело долга)'}];
+  const v=(k,l)=>{const x=num((state.opex[k]||{})[l]);return x?nf.format(x):''};
+  document.getElementById('opexTable').innerHTML='<thead><tr><th>₽ за месяц</th>'+keys.map(k=>'<th>'+esc(k.label)+'<span class="share">'+k.kind+'</span></th>').join('')+'</tr></thead><tbody>'+
+    lines.map(l=>'<tr><td>'+esc(l.label)+'</td>'+keys.map(k=>'<td><input class="num" data-opex="'+k.key+'|'+l.id+'" inputmode="decimal" placeholder="0" value="'+v(k.key,l.id)+'" aria-label="'+esc(l.label+', '+k.label)+'"></td>').join('')+'</tr>').join('')+'</tbody>';
+}
+
+// ---------- что не хватает ----------
+function renderNeed(){
+  const noFunnel=P.filter(p=>!skuParams(p).funnel).map(p=>p.article);
+  const items=[
+    '<b>Операционные расходы</b> по статьям (аренда, зарплата и взносы, сервисы, дизайнеры, упаковка, фулфилмент) — помесячно. Внесите на вкладке «Операционные расходы» или пришлите выписку / таблицу ДДС.',
+    '<b>Кредиты</b>: проценты — в P&L; тело долга — в баланс, не в расходы.',
+    '<b>Факт '+esc(PLAN_MONTHS[0].label.toLowerCase())+'</b>: Акт реализации и «Начисления» — тогда в «Плане спринта» и «Плане по дням» появятся факт и % выполнения.',
+    '<b>Ваша цель на квартал</b> (выручка или заказы) — подставлю в рычаги, сейчас план = текущая воронка без роста.',
+    noFunnel.length?'<b>Воронка для '+esc(noFunnel.join(', '))+'</b>: этих товаров нет в отчёте «Аналитика» по выбранным категориям — выгрузите отчёт с их категориями.':'',
+    '<b>ДДС</b> (движение денег по счетам): поступления от Ozon, оплаты поставщикам, налоги — построчно, со статьёй.',
+    '<b>Баланс на 1-е число</b>: деньги на счетах, товар на складах Ozon и в пути, долг Ozon перед вами, долги поставщикам и по кредитам.',
+    '<b>Wildberries</b>: если магазин там есть — отчёт о реализации WB, его строки встанут в P&L отдельным каналом.',
+  ].filter(Boolean);
+  document.getElementById('needList').innerHTML=items.map(x=>'<li>'+x+'</li>').join('');
+}
+
+// ---------- ввод ----------
+document.addEventListener('change',e=>{
+  const t=e.target,d=t.dataset;
+  if(d.opex){const [key,line]=d.opex.split('|');(state.opex[key]=state.opex[key]||{})[line]=num(t.value);t.value=num(t.value)?nf.format(num(t.value)):''}
+  else if(d.lever){const [key,id]=d.lever.split('|');(state.levers[key]=state.levers[key]||{})[id]=num(t.value)}
+  else if(d.sku){const [art,k,isPct]=d.sku.split('|');(state.sku[art]=state.sku[art]||{})[k]=num(t.value)/(isPct==='1'?100:1)}
+  else if(d.calc){state.calc[d.calc]=num(t.value);save();renderCalc();return}
+  else return;
+  save();render();
+});
+document.getElementById('funnelSrc').innerHTML=Object.keys(D.analytics).sort((a,b)=>b-a).map(k=>'<option value="'+k+'">'+esc(D.analytics[k].period)+' (от '+esc(D.analytics[k].made)+')</option>').join('')||'<option value="">нет отчёта</option>';
+document.getElementById('funnelSrc').value=state.funnelSrc;
+document.getElementById('funnelSrc').onchange=e=>{state.funnelSrc=e.target.value;state.sku={};save();render()};
+document.getElementById('resetSprint').onclick=()=>{state.sku={};state.levers={};save();render()};
+
+function render(){
+  const M=model();
+  renderOverview(M);renderMonth(M);renderSprint(M);renderDaily(M);renderFunnel();renderUnit();renderWhatif();renderWeek();renderOpex();renderNeed();
+}
+
+// ---------- шапка, вкладки, тема ----------
+document.getElementById('title').textContent='P&L и план — '+D.shop;
+document.title='P&L '+D.shop;
+document.getElementById('subtitle').textContent=D.channel+' · факт '+FACT[0].label.toLowerCase()+' — '+LAST.label.toLowerCase()+' · план '+QLABEL+' · собрано '+D.built.split('-').reverse().join('.');
+if(D.warnings&&D.warnings.length)document.getElementById('warnings').innerHTML='<div class="warn"><b>Проверьте данные:</b><ul>'+D.warnings.map(w=>'<li>'+esc(w)+'</li>').join('')+'</ul></div>';
+document.getElementById('tabs').addEventListener('click',e=>{
+  const b=e.target.closest('[data-tab]');if(!b)return;
+  document.querySelectorAll('#tabs .btn').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('[data-pane]').forEach(p=>p.classList.toggle('hidden',p.dataset.pane!==b.dataset.tab));
+  state.tab=b.dataset.tab;save();
+});
+const toggle=(id,key)=>{const b=document.getElementById(id);b.classList.toggle('on',!!state[key]);b.onclick=()=>{state[key]=!state[key];showShares=!!state.showShares;showDelta=!!state.showDelta;save();b.classList.toggle('on',!!state[key]);render()}};
+toggle('sharesBtn','showShares');toggle('deltaBtn','showDelta');
+document.getElementById('themeBtn').onclick=()=>{
+  const cur=document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  document.documentElement.dataset.theme=cur==='dark'?'light':'dark';state.theme=document.documentElement.dataset.theme;save()};
+if(state.theme)document.documentElement.dataset.theme=state.theme;
+render();
+if(state.tab){const b=document.querySelector('[data-tab="'+state.tab+'"]');if(b)b.click()}
+})();
+</script>
+<script>addEventListener('message',function(e){if(e.data&&e.data.type==='ctrleads-theme')document.documentElement.dataset.theme=e.data.mode})</script><script>(function(){var keep=["sprint", "daily", "funnel", "whatif", "opex", "need"];
+var bs=[].slice.call(document.querySelectorAll('button[data-tab]'));
+bs.forEach(function(b){if(keep.indexOf(b.dataset.tab)<0)b.style.display='none'});
+var on=bs.filter(function(b){return b.classList.contains('on')&&keep.indexOf(b.dataset.tab)>=0})[0];
+if(!on){var f=bs.filter(function(b){return b.dataset.tab===keep[0]})[0];if(f)f.click();}
+var t=document.getElementById('title');if(t)t.textContent=t.textContent.replace('P&L и план','План');})()</script><script>(function(){
+function empty(td){if(!td)return true;if(td.querySelector('input,select,textarea,img,svg,button'))return false;
+var t=(td.textContent||'').replace(/\s+/g,'');return t===''||t==='—'||t==='-';}
+function run(){[].forEach.call(document.querySelectorAll('table'),function(tb){
+ if(tb.querySelector('[colspan],[rowspan]'))return;var body=tb.tBodies[0];if(!body||!body.rows.length)return;
+ // таблицы для ввода и с закреплёнными слева колонками не трогаем: отступы закрепления считаются от скрытых колонок
+ if(tb.querySelector('textarea,input,select'))return;var h=tb.rows[0]&&tb.rows[0].cells;
+ for(var k=0;h&&k<h.length;k++){var cs=getComputedStyle(h[k]);if(cs.position==='sticky'&&cs.left!=='auto'&&parseFloat(cs.left)>0)return;}
+ var n=0;[].forEach.call(tb.rows,function(r){n=Math.max(n,r.cells.length)});
+ for(var c=0;c<n;c++){var all=true;for(var i=0;i<body.rows.length&&all;i++)all=empty(body.rows[i].cells[c]);
+  [].forEach.call(tb.rows,function(r){var x=r.cells[c];if(!x)return;
+   if(all){if(x.style.display!=='none'){x.style.display='none';x.dataset.ecHid='1';}}
+   else if(x.dataset.ecHid){x.style.display='';delete x.dataset.ecHid;}});}});}
+var t=null;new MutationObserver(function(){clearTimeout(t);t=setTimeout(run,150)}).observe(document.documentElement,{childList:true,subtree:true});
+setTimeout(run,300);})()</script><script>(function(){
+var R = [[/«Начислени(ям|ях|й|я)»/g, '«Детализации»'], [/Начислени(ям|ях|й|я)/g, 'Детализации'], [/Акт(а|е|у)? реализации/g, 'Отчёт о реализации'],
+         [/Ozon Premium/g, 'WB'], [/Ozon/g, 'WB'], [/ОЗОН/g, 'WB']];
+function fix(n){ var t = n.nodeValue, o = t; for (var i = 0; i < R.length; i++) t = t.replace(R[i][0], R[i][1]); if (t !== o) n.nodeValue = t; }
+function walk(root){ var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), n;
+  while ((n = w.nextNode())) { var p = n.parentNode; if (p && p.nodeName !== 'SCRIPT' && p.nodeName !== 'STYLE' && !(p.closest && p.closest('.mpsw'))) fix(n); } }
+var t = null; function run(){ walk(document.body); document.title = document.title.replace(/Ozon/g, 'WB'); }
+document.addEventListener('DOMContentLoaded', function(){ run();
+  new MutationObserver(function(){ clearTimeout(t); t = setTimeout(run, 60); }).observe(document.body, {childList: true, subtree: true, characterData: true}); });
+})();</script></body>
+</html>

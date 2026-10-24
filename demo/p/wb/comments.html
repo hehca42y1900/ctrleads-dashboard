@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<script>/* CTRLeads демо: без сервера, данные вымышленные */
+(function(){
+var FIX = Date.UTC(2026, 9, 23, 6, 0, 0), RD = Date;
+class DemoDate extends RD { constructor(...a){ if (a.length) super(...a); else super(FIX); } static now(){ return FIX; } }
+window.Date = DemoDate;
+var JK = 'ctrDemoJournal.v1', J0 = {"dates": [{"date": "2026-10-20", "comments": {"i1": "Поставка 120 шт в Хоругвино", "general": "Заказали отчёт «Аналитика категорий» за 28 дней"}}, {"date": "2026-10-18", "comments": {"i2": "Ставка 12 → 14 ₽"}}, {"date": "2026-10-14", "comments": {"general": "Старт осенней акции на пледы (−7%)", "i1": "Цена 1490 → 1390 ₽ в акции"}}, {"date": "2026-10-07", "comments": {"i3": "Новые фото в карточке, обложка 3:4"}}, {"date": "2026-10-01", "comments": {"general": "Себестоимость обновлена с 01.09 (+4%)"}}], "products": [{"id": "general", "sku": "", "name": "Общий комментарий"}, {"id": "i1", "sku": "NH-PLD-150", "name": "Плед флисовый 150×200, графит"}, {"id": "i2", "sku": "NH-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт"}, {"id": "i3", "sku": "NH-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин"}]};
+function jget(){ try{ var s = localStorage.getItem(JK); if (s) return JSON.parse(s); }catch(e){} return JSON.parse(JSON.stringify(J0)); }
+function jset(j){ try{ localStorage.setItem(JK, JSON.stringify(j)); }catch(e){} }
+function japply(j, op){
+  var k = op.op || 'comment';
+  function day(d){ var x = j.dates.find(function(r){ return r.date === d; });
+    if (!x){ x = {date: d, comments: {}}; j.dates.push(x); j.dates.sort(function(a,b){ return b.date.localeCompare(a.date); }); } return x; }
+  if (k === 'comment'){ var it = op.item || op.product, t = String(op.text || '').trim();
+    if (t) day(op.date).comments[it] = t; else { var x = j.dates.find(function(r){ return r.date === op.date; }); if (x) delete x.comments[it]; } }
+  else if (k === 'date') day(op.date);
+  else if (k === 'delete_date') j.dates = j.dates.filter(function(r){ return r.date !== op.date; });
+  else if (k === 'item'){ if (op.id === 'general') return; var p = j.products.find(function(r){ return r.id === op.id; });
+    if (p){ p.sku = op.sku || ''; p.name = op.name || ''; } else j.products.push({id: op.id, sku: op.sku || '', name: op.name || ''}); }
+  else if (k === 'delete_item'){ j.products = j.products.filter(function(r){ return r.id !== op.id; });
+    j.dates.forEach(function(r){ delete r.comments[op.id]; }); }
+}
+window.__demoToast = function(text){
+  try{ var d = document.getElementById('demoToast');
+    if (!d){ d = document.createElement('div'); d.id = 'demoToast';
+      d.style.cssText = 'position:fixed;left:50%;bottom:58px;transform:translateX(-50%);z-index:9999;max-width:min(92vw,520px);'
+        + 'background:#1D1D23;color:#F5F5FA;border:1px solid #7B61FF;border-radius:10px;padding:10px 14px;font:13px/1.4 Inter,Arial,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.35)';
+      document.body.appendChild(d); }
+    d.textContent = text; d.style.display = 'block'; clearTimeout(d._t); d._t = setTimeout(function(){ d.style.display = 'none'; }, 4200);
+  }catch(e){}
+};
+function resp(obj, status){ return Promise.resolve(new Response(JSON.stringify(obj), {status: status || 200, headers: {'Content-Type': 'application/json'}})); }
+var END = '2026-10-22', PRESETS = [1, 7, 14, 30];
+function days(a, b){ return Math.round((RD.parse(b + 'T00:00:00Z') - RD.parse(a + 'T00:00:00Z')) / 864e5) + 1; }
+function preset(q){
+  var n = days(q.get('from'), q.get('to')), best = PRESETS.reduce(function(a, p){ return Math.abs(p - n) < Math.abs(a - n) ? p : a; }, 7);
+  var exact = q.get('to') === END && best === n;
+  if (exact && q.get('cto')){ var c1 = new RD(RD.parse(q.get('from') + 'T00:00:00Z') - n * 864e5).toISOString().slice(0, 10);
+    exact = q.get('cfrom') === c1 && days(q.get('cfrom'), q.get('cto')) === n; }
+  if (!exact) __demoToast('В демо данные есть за «Вчера», 7, 14 и 30 дней до 22.10.2026 — показан ближайший период (' + best + ' дн.).');
+  return best;
+}
+window.__demoXlsx = function(qs){ var q = new URLSearchParams(qs); return 'x/wb/rnp-' + preset(q) + '.xlsx'; };
+var realFetch = window.fetch;
+window.fetch = function(u, o){
+  var s = String(u && u.url || u), m = (o && o.method || 'GET').toUpperCase();
+  if (s.indexOf('/api/') !== 0) return realFetch.apply(this, arguments);
+  var path = s.split('?')[0], q = new URLSearchParams(s.split('?')[1] || '');
+  if (path === '/api/comments'){
+    var j = jget();
+    if (m === 'POST'){ var b = {}; try{ b = JSON.parse(o.body || '{}'); }catch(e){}
+      (b.ops || [b]).forEach(function(op){ japply(j, op); }); jset(j); return resp({ok: true, state: j}); }
+    return resp(j);
+  }
+  var A = window.__DEMO_API;
+  if (path === '/api/rnp' && A) return resp(A.rnp[preset(q) + '-' + (q.get('group') || 'sku') + '-' + (q.get('all') || '0')]);
+  if (path === '/api/dash' && A) return resp(A.dash[String(preset(q))]);
+  if (path === '/api/note') return resp({ok: true});
+  __demoToast('Это демо: загрузка файлов и сохранение на сервер отключены — данные уже заполнены.');
+  return resp({error: 'демо: загрузка отключена'}, 400);
+};
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Северный дом — журнал комментариев</title>
+<style>
+:root{--bg:#f4f6fb;--panel:#fff;--panel2:#f7f8fc;--line:#dfe4ee;--ink:#182033;--muted:#6f7b91;--accent:#2f80ff;--accent2:#7057e8;--danger:#d84b54;--shadow:0 12px 30px rgba(25,42,80,.08);color-scheme:light}
+body[data-theme="dark"]{--bg:#121216;--panel:#1a1a20;--panel2:#202028;--line:#30303a;--ink:#f3f4fa;--muted:#98a1b3;--accent:#54a0ff;--accent2:#8b79ff;--danger:#ff747b;--shadow:none;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,Arial,sans-serif;font-size:14px}.wrap{max-width:1800px;margin:0 auto;padding:28px}.head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:22px}.eyebrow{color:var(--accent);font-weight:800;font-size:11px;letter-spacing:.1em;text-transform:uppercase}.head h1{margin:6px 0 5px;font-size:28px}.sub{margin:0;color:var(--muted);line-height:1.5}.controls{display:flex;align-items:end;gap:9px;flex-wrap:wrap}.field{display:flex;flex-direction:column;gap:5px}.field label{font-size:11px;color:var(--muted);font-weight:700}.field input{height:40px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:9px;padding:0 11px;font:inherit;width:160px}.btn{height:40px;border:0;border-radius:9px;padding:0 16px;font-weight:800;cursor:pointer;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}.btn.secondary{background:var(--panel);color:var(--ink);border:1px solid var(--line)}.help{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 16px;color:var(--muted);line-height:1.5;margin-bottom:16px}.help b{color:var(--ink)}.table-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}.scroll{overflow:auto;max-height:calc(100vh - 230px)}table{border-collapse:separate;border-spacing:0;min-width:100%;table-layout:fixed}th,td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);vertical-align:top}th{position:sticky;top:0;z-index:5;background:var(--panel2);padding:12px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}td{background:var(--panel);padding:8px}.sku-col{width:155px;min-width:155px;position:sticky;left:0;z-index:3}.name-col{width:340px;min-width:340px;position:sticky;left:155px;z-index:3}.date-col{width:300px;min-width:300px}th.sku-col,th.name-col{z-index:8;background:var(--panel2)}td.sku-col,td.name-col{background:var(--panel)}.general td{background:color-mix(in srgb,var(--accent) 7%,var(--panel))}.general td.sku-col,.general td.name-col{background:color-mix(in srgb,var(--accent) 7%,var(--panel))}.sku{font:700 11px/1.4 ui-monospace,Consolas,monospace;color:var(--accent)}.product{font-weight:650;line-height:1.4}.date-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.date-head strong{font:800 14px ui-monospace,Consolas,monospace;color:var(--ink)}.delete-date{border:0;background:transparent;color:var(--danger);font-size:18px;cursor:pointer;padding:2px 5px}.comment{display:block;width:100%;min-height:82px;resize:vertical;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink);padding:9px;font:13px/1.45 Inter,Arial,sans-serif;overflow-wrap:anywhere}.comment:hover{border-color:var(--line);background:var(--panel2)}.comment:focus{outline:2px solid color-mix(in srgb,var(--accent) 35%,transparent);border-color:var(--accent);background:var(--panel)}.empty{padding:50px 20px;text-align:center;color:var(--muted)}.empty b{display:block;color:var(--ink);font-size:18px;margin-bottom:8px}.status{font-size:11px;color:var(--muted);margin-top:9px;text-align:right}@media(max-width:800px){.wrap{padding:18px}.name-col{width:250px;min-width:250px}.date-col{width:260px;min-width:260px}.scroll{max-height:none}}
+/* Компактная таблица журнала */
+.help{display:inline-block;margin-bottom:12px;padding:9px 13px;font-size:12px}
+.scroll{max-height:calc(100vh - 195px)}
+th{padding:10px 12px}
+td{padding:5px 8px;vertical-align:middle}
+.sku-col{width:220px;min-width:220px}
+.name-col{width:500px;min-width:500px;left:220px}
+.date-col{width:360px;min-width:360px}
+.sku{font:650 13px/1.35 Inter,Arial,sans-serif;color:var(--ink)}
+.product{font-size:13px;font-weight:600;line-height:1.35}
+.comment{min-height:48px;height:48px;padding:13px 12px;font-size:13px;line-height:20px;resize:vertical}
+.general .comment{min-height:48px;height:48px}
+@media(max-width:800px){.sku-col{width:170px;min-width:170px}.name-col{width:310px;min-width:310px;left:170px}.date-col{width:280px;min-width:280px}}
+/* Плотный рабочий режим: максимум данных без пустого пространства */
+.wrap{max-width:none;padding:14px 18px}
+.head{align-items:center;margin-bottom:8px;gap:12px}
+.eyebrow{font-size:10px}
+.head h1{margin:3px 0 2px;font-size:22px;line-height:1.15}
+.sub{font-size:12px;line-height:1.3}
+.controls{gap:7px}
+.field{gap:3px}
+.field label{font-size:10px}
+.field input,.btn{height:34px}
+.field input{width:145px;padding:0 9px}
+.btn{padding:0 13px;font-size:12px}
+.help{margin:4px 0 8px;padding:6px 10px;font-size:11px;border-radius:8px}
+.table-card{border-radius:10px}
+.scroll{max-height:calc(100vh - 148px)}
+th{padding:8px 9px;font-size:10px}
+td{padding:3px 6px}
+.sku-col{width:180px;min-width:180px}
+.name-col{width:360px;min-width:360px;left:180px}
+.date-col{width:280px;min-width:280px}
+.sku,.product{font-size:12px;line-height:1.25}
+.comment,.general .comment{height:38px;min-height:38px;padding:9px 10px;font-size:12px;line-height:18px;border-radius:6px}
+.status{margin-top:4px;font-size:10px}
+@media(max-width:800px){.wrap{padding:10px}.sku-col{width:145px;min-width:145px}.name-col{width:280px;min-width:280px;left:145px}.date-col{width:240px;min-width:240px}}
+/* Вид как у рабочего листа: компактная сетка без растягивания на экран */
+.wrap{padding:10px 14px}
+.head{align-items:center;margin:0 0 7px;gap:10px}
+.eyebrow,.sub,.help{display:none}
+.head h1{margin:0;font-size:18px;line-height:34px;white-space:nowrap}
+.controls{margin-left:auto;gap:6px}
+.field{flex-direction:row;align-items:center;gap:6px}
+.field label{font-size:10px;white-space:nowrap}
+.field input,.btn{height:30px}
+.field input{width:130px;font-size:11px}
+.btn{padding:0 11px;font-size:11px;border-radius:7px}
+.table-card{display:inline-block;max-width:100%;vertical-align:top}
+.scroll{max-height:calc(100vh - 82px)}
+table{width:max-content;min-width:0;table-layout:fixed}
+th{height:29px;padding:5px 7px;font-size:9px}
+td{height:32px;padding:2px 5px}
+.sku-col{width:155px;min-width:155px}
+.name-col{width:350px;min-width:350px;left:155px}
+.date-col{width:220px;min-width:220px}
+.sku,.product{font-size:11px;line-height:1.15;font-weight:600}
+.comment,.general .comment{height:28px;min-height:28px;padding:5px 7px;font-size:11px;line-height:17px;border-radius:4px;resize:vertical}
+.date-head strong{font-size:13px;font-weight:800;color:var(--ink)}
+.delete-date{font-size:15px;padding:0 3px}
+.comment:not(:placeholder-shown){
+ background:color-mix(in srgb,var(--accent) 16%,var(--panel));
+ border-color:color-mix(in srgb,var(--accent) 58%,var(--line));
+ color:var(--ink);font-weight:650;
+ box-shadow:inset 3px 0 0 var(--accent);
+}
+.comment:not(:placeholder-shown):focus{
+ background:color-mix(in srgb,var(--accent) 22%,var(--panel));
+ border-color:var(--accent);
+}
+.status{margin-top:2px;font-size:9px;text-align:left}
+@media(max-width:800px){.head{align-items:flex-start}.controls{margin-left:0}.sku-col{width:135px;min-width:135px}.name-col{width:270px;min-width:270px;left:135px}.date-col{width:200px;min-width:200px}}
+</style>
+</head>
+<body data-theme="dark">
+<div class="wrap">
+  <div class="head">
+    <div><div class="eyebrow">Северный дом · журнал изменений</div><h1>Комментарии по товарам</h1><p class="sub">Фиксируйте изменения цены, акций, ставок, ДРР, остатков и рекламных кампаний.</p></div>
+    <div class="controls">
+      <div class="field"><label for="newArticle">Артикул</label><input id="newArticle" type="text" placeholder="Например, NH-APR-01"></div>
+      <div class="field"><label for="newProductName">Название товара</label><input id="newProductName" type="text" placeholder="Название"></div>
+      <button class="btn secondary" id="addProduct" type="button">＋ Добавить товар</button>
+      <div class="field"><label for="newDate">Дата комментария</label><input id="newDate" type="date"></div>
+      <button class="btn" id="addDate" type="button">＋ Добавить дату слева</button>
+    </div>
+  </div>
+  <div class="help"><b>Новая дата добавляется слева.</b> Последний комментарий всегда ближе к товару. Товары в таблицу не подгружаются автоматически из прайс-листа — добавляйте по одному, кнопкой выше, только те, по которым нужно вести журнал.</div>
+  <div class="table-card"><div class="scroll" id="tableHost"></div></div>
+  <div class="status" id="status">Изменения сохраняются в этом браузере (localStorage)</div>
+</div>
+<script>
+const DEFAULT_PRODUCTS=[{id:'general',sku:'',name:'Общий комментарий'}];
+var LS_KEY='teComments_v1';
+let state={dates:[],products:DEFAULT_PRODUCTS.map(p=>({...p}))};
+try{var saved=JSON.parse(localStorage.getItem(LS_KEY));if(saved&&Array.isArray(saved.dates)){state=saved;if(!Array.isArray(state.products)||!state.products.length)state.products=DEFAULT_PRODUCTS.map(p=>({...p}));}}catch(e){}
+const host=document.getElementById('tableHost'),dateInput=document.getElementById('newDate'),statusEl=document.getElementById('status');
+const articleInput=document.getElementById('newArticle'),nameInput=document.getElementById('newProductName');
+dateInput.value=new Date().toISOString().slice(0,10);
+function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function formatDate(v){const p=String(v).split('-');return p.length===3?p[2]+'.'+p[1]+'.'+p[0]:v;}
+function sortDates(){state.dates.sort((a,b)=>String(b.date).localeCompare(String(a.date)));}
+function render(){
+ sortDates();
+ let html='<table><thead><tr><th class="sku-col">Артикул</th><th class="name-col">Название товара</th>';
+ html+=state.dates.map((d,i)=>'<th class="date-col"><div class="date-head"><strong>'+esc(formatDate(d.date))+'</strong><button class="delete-date" title="Удалить дату" onclick="removeDate('+i+')">×</button></div></th>').join('')+'</tr></thead><tbody>';
+ state.products.forEach((p,ri)=>{const canDelete=p.id!=='general';html+='<tr class="'+(p.id==='general'?'general':'')+'"><td class="sku-col"><span class="sku">'+esc(p.sku)+'</span></td><td class="name-col"><div class="product" style="display:flex;align-items:center;justify-content:space-between;gap:6px;"><span>'+esc(p.name)+'</span>'+(canDelete?'<button class="delete-date" title="Удалить товар из журнала" onclick="removeProduct(\''+p.id+'\')">×</button>':'')+'</div>'+(state.dates.length?'':'<small style="display:block;margin-top:5px;color:var(--muted)">Добавьте дату, чтобы ввести комментарий</small>')+'</td>';
+  state.dates.forEach((d,di)=>{const val=d.comments&&d.comments[p.id]||'';html+='<td class="date-col"><textarea class="comment" data-date="'+di+'" data-product="'+esc(p.id)+'" aria-label="'+(p.id==='general'?'Общий комментарий за дату':'Комментарий по товару')+'" placeholder="'+(p.id==='general'?'Общий комментарий за дату':' ')+'">'+esc(val)+'</textarea></td>';});html+='</tr>';});
+ html+='</tbody></table>';host.innerHTML=html;
+ host.querySelectorAll('.comment').forEach(el=>el.addEventListener('input',()=>{const d=state.dates[+el.dataset.date];if(!d.comments)d.comments={};d.comments[el.dataset.product]=el.value;markChanged();scheduleSave();}));scheduleSave();
+}
+document.getElementById('addProduct').addEventListener('click',()=>{
+ const article=articleInput.value.trim();
+ const name=nameInput.value.trim();
+ if(!name){alert('Введите название товара.');nameInput.focus();return;}
+ const id='item'+Date.now();
+ state.products.push({id,sku:article,name});
+ render();
+ markChanged();
+ articleInput.value='';nameInput.value='';
+ statusEl.textContent='Товар «'+name+'» добавлен в журнал';
+ nameInput.focus();
+});
+[articleInput,nameInput].forEach(el=>el.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('addProduct').click();}));
+function removeProduct(id){
+ const p=state.products.find(x=>x.id===id);
+ if(!p)return;
+ if(!confirm('Убрать «'+(p.name||p.sku)+'» из журнала вместе со всеми комментариями по нему?'))return;
+ state.products=state.products.filter(x=>x.id!==id);
+ state.dates.forEach(d=>{if(d.comments)delete d.comments[id];});
+ render();
+ markChanged();
+}
+document.getElementById('addDate').addEventListener('click',()=>{
+ const date=dateInput.value;
+ if(!date){alert('Сначала выберите дату.');dateInput.focus();return;}
+ const existing=state.dates.findIndex(d=>d.date===date);
+ if(existing>=0){
+  alert('Дата '+formatDate(date)+' уже добавлена. Выберите другую дату.');
+  dateInput.focus();
+  return;
+ }
+ state.dates.unshift({date,comments:{}});
+ render();
+ markChanged();
+ statusEl.textContent='Дата '+formatDate(date)+' добавлена · введите комментарии';
+ setTimeout(()=>{const x=host.querySelector('.comment');if(x)x.focus();},50);
+});
+function removeDate(i){const d=state.dates[i];if(!d)return;if(!confirm('Удалить столбец '+formatDate(d.date)+' вместе со всеми комментариями?'))return;state.dates.splice(i,1);render();markChanged();}
+function markChanged(){statusEl.textContent='Есть изменения · сохраняются вместе с дашбордом';}
+let saveTimer=null;function send(type,payload){try{parent.postMessage({type,key:'comments',state:payload},'*');}catch(e){}}
+function capture(){return JSON.parse(JSON.stringify(state));}
+function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>{try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}send('ctrleads-state',capture());statusEl.textContent='Сохранено в этом браузере';},500);}
+window.addEventListener('message',e=>{if(!e||!e.data)return;if(e.data.type==='ctrleads-theme')document.body.setAttribute('data-theme',e.data.mode);if(e.data.type==='ctrleads-capture-now')send('ctrleads-state',capture());if(e.data.type==='ctrleads-restore'&&e.data.key==='comments'&&e.data.state){state=e.data.state;if(!Array.isArray(state.dates))state.dates=[];render();send('ctrleads-restored',capture());}});
+render();send('ctrleads-ready',null);
+</script>
+<script>
+/* Пилот: журнал хранится в базе. Страница не менялась — её сохранение (scheduleSave) дополнено
+   отправкой разницы на сервер: POST /api/comments (см. ozon_loader/page_comments.py). */
+(function () {
+  const DB = {"dates": [{"date": "2026-10-20", "comments": {"i1": "Поставка 120 шт в Хоругвино", "general": "Заказали отчёт «Аналитика категорий» за 28 дней"}}, {"date": "2026-10-18", "comments": {"i2": "Ставка 12 → 14 ₽"}}, {"date": "2026-10-14", "comments": {"general": "Старт осенней акции на пледы (−7%)", "i1": "Цена 1490 → 1390 ₽ в акции"}}, {"date": "2026-10-07", "comments": {"i3": "Новые фото в карточке, обложка 3:4"}}, {"date": "2026-10-01", "comments": {"general": "Себестоимость обновлена с 01.09 (+4%)"}}], "products": [{"id": "general", "sku": "", "name": "Общий комментарий"}, {"id": "i1", "sku": "NH-PLD-150", "name": "Плед флисовый 150×200, графит"}, {"id": "i2", "sku": "NH-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт"}, {"id": "i3", "sku": "NH-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин"}]};
+  const ARTICLES = [{"sku": "NH-APR-01", "name": "Фартук кухонный с карманом, лён"}, {"sku": "NH-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин"}, {"sku": "NH-KNT-130", "name": "Плед вязаный 130×170, молочный"}, {"sku": "NH-MIT-2", "name": "Прихватки-варежки, 2 шт"}, {"sku": "NH-PIL-50", "name": "Наволочки сатин 50×70, 2 шт"}, {"sku": "NH-PLD-150", "name": "Плед флисовый 150×200, графит"}, {"sku": "NH-PLD-200", "name": "Плед флисовый 200×220, графит"}, {"sku": "NH-SHT-160", "name": "Простыня на резинке 160×200, сатин"}, {"sku": "NH-TBL-140", "name": "Скатерть водоотталкивающая 140×180"}, {"sku": "NH-TWL-M70", "name": "Полотенце махровое 70×140, серое"}, {"sku": "NH-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт"}];
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const hasData = (s) => !!s && ((s.dates || []).length > 0 || (s.products || []).some((p) => p.id !== 'general'));
+  let synced = clone(DB);                         // что уже лежит в базе
+  if (hasData(DB) || !hasData(state)) {           // база главнее браузера; пустая база не затирает записи браузера
+    state = clone(DB);
+    if (!Array.isArray(state.products) || !state.products.length) state.products = DEFAULT_PRODUCTS.map((p) => ({ ...p }));
+  }
+
+  // подсказки артикулов из ozon.products
+  const dl = document.createElement('datalist');
+  dl.id = 'ozonArticles';
+  ARTICLES.forEach((a) => { const o = document.createElement('option'); o.value = a.sku; o.label = a.name; dl.appendChild(o); });
+  document.body.appendChild(dl);
+  articleInput.setAttribute('list', 'ozonArticles');
+  articleInput.addEventListener('change', () => {
+    const a = ARTICLES.find((x) => x.sku === articleInput.value.trim());
+    if (a && !nameInput.value.trim()) nameInput.value = a.name;
+  });
+
+  function diff(a, b) {                          // a — в базе, b — на странице
+    const ops = [];
+    const ap = new Map((a.products || []).map((p) => [p.id, p]));
+    const bp = new Map((b.products || []).map((p) => [p.id, p]));
+    (b.products || []).forEach((p, i) => {
+      const o = ap.get(p.id);
+      if (p.id !== 'general' && (!o || o.sku !== p.sku || o.name !== p.name || (a.products || []).indexOf(o) !== i)) {
+        ops.push({ op: 'item', id: p.id, sku: p.sku || '', name: p.name || '', pos: i });
+      }
+    });
+    const ad = new Map((a.dates || []).map((d) => [d.date, d.comments || {}]));
+    const bd = new Map((b.dates || []).map((d) => [d.date, d.comments || {}]));
+    for (const [day] of ad) if (!bd.has(day)) ops.push({ op: 'delete_date', date: day });
+    for (const [day, bc] of bd) {
+      const ac = ad.get(day);
+      if (!ac) ops.push({ op: 'date', date: day });
+      const keys = new Set([...Object.keys(ac || {}), ...Object.keys(bc)]);
+      for (const k of keys) {
+        const t1 = String((ac || {})[k] || '').trim(), t2 = String(bc[k] || '').trim();
+        if (t1 !== t2 && (bp.has(k) || !t2)) ops.push({ date: day, item: k, text: t2 });
+      }
+    }
+    for (const id of ap.keys()) if (id !== 'general' && !bp.has(id)) ops.push({ op: 'delete_item', id });
+    return ops;
+  }
+
+  let timer = null, busy = false;
+  function sync() {
+    if (busy) { timer = setTimeout(sync, 400); return; }
+    const snap = clone(state);
+    const ops = diff(synced, snap);
+    if (!ops.length) { statusEl.textContent = 'Сохранено на сервере'; return; }
+    busy = true;
+    fetch('/api/comments', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'rnp' }, body: JSON.stringify({ ops }) })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ok) throw new Error(j && j.error || 'ошибка сервера');
+        synced = snap;
+        statusEl.textContent = 'Сохранено на сервере';
+      })
+      .catch((e) => { statusEl.textContent = 'Не сохранено на сервере: ' + (e.message || e) + ' — копия осталась в этом браузере'; })
+      .finally(() => { busy = false; });
+  }
+  const pageSave = scheduleSave;
+  scheduleSave = function () { pageSave(); clearTimeout(timer); timer = setTimeout(sync, 700); };
+  render();
+})();
+</script>
+<script>(function(){
+function empty(td){if(!td)return true;if(td.querySelector('input,select,textarea,img,svg,button'))return false;
+var t=(td.textContent||'').replace(/\s+/g,'');return t===''||t==='—'||t==='-';}
+function run(){[].forEach.call(document.querySelectorAll('table'),function(tb){
+ if(tb.querySelector('[colspan],[rowspan]'))return;var body=tb.tBodies[0];if(!body||!body.rows.length)return;
+ // таблицы для ввода и с закреплёнными слева колонками не трогаем: отступы закрепления считаются от скрытых колонок
+ if(tb.querySelector('textarea,input,select'))return;var h=tb.rows[0]&&tb.rows[0].cells;
+ for(var k=0;h&&k<h.length;k++){var cs=getComputedStyle(h[k]);if(cs.position==='sticky'&&cs.left!=='auto'&&parseFloat(cs.left)>0)return;}
+ var n=0;[].forEach.call(tb.rows,function(r){n=Math.max(n,r.cells.length)});
+ for(var c=0;c<n;c++){var all=true;for(var i=0;i<body.rows.length&&all;i++)all=empty(body.rows[i].cells[c]);
+  [].forEach.call(tb.rows,function(r){var x=r.cells[c];if(!x)return;
+   if(all){if(x.style.display!=='none'){x.style.display='none';x.dataset.ecHid='1';}}
+   else if(x.dataset.ecHid){x.style.display='';delete x.dataset.ecHid;}});}});}
+var t=null;new MutationObserver(function(){clearTimeout(t);t=setTimeout(run,150)}).observe(document.documentElement,{childList:true,subtree:true});
+setTimeout(run,300);})()</script></body></html>

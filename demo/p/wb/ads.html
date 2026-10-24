@@ -1,0 +1,1022 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<script>/* CTRLeads демо: без сервера, данные вымышленные */
+(function(){
+var FIX = Date.UTC(2026, 9, 23, 6, 0, 0), RD = Date;
+class DemoDate extends RD { constructor(...a){ if (a.length) super(...a); else super(FIX); } static now(){ return FIX; } }
+window.Date = DemoDate;
+var JK = 'ctrDemoJournal.v1', J0 = {"dates": [{"date": "2026-10-20", "comments": {"i1": "Поставка 120 шт в Хоругвино", "general": "Заказали отчёт «Аналитика категорий» за 28 дней"}}, {"date": "2026-10-18", "comments": {"i2": "Ставка 12 → 14 ₽"}}, {"date": "2026-10-14", "comments": {"general": "Старт осенней акции на пледы (−7%)", "i1": "Цена 1490 → 1390 ₽ в акции"}}, {"date": "2026-10-07", "comments": {"i3": "Новые фото в карточке, обложка 3:4"}}, {"date": "2026-10-01", "comments": {"general": "Себестоимость обновлена с 01.09 (+4%)"}}], "products": [{"id": "general", "sku": "", "name": "Общий комментарий"}, {"id": "i1", "sku": "NH-PLD-150", "name": "Плед флисовый 150×200, графит"}, {"id": "i2", "sku": "NH-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт"}, {"id": "i3", "sku": "NH-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин"}]};
+function jget(){ try{ var s = localStorage.getItem(JK); if (s) return JSON.parse(s); }catch(e){} return JSON.parse(JSON.stringify(J0)); }
+function jset(j){ try{ localStorage.setItem(JK, JSON.stringify(j)); }catch(e){} }
+function japply(j, op){
+  var k = op.op || 'comment';
+  function day(d){ var x = j.dates.find(function(r){ return r.date === d; });
+    if (!x){ x = {date: d, comments: {}}; j.dates.push(x); j.dates.sort(function(a,b){ return b.date.localeCompare(a.date); }); } return x; }
+  if (k === 'comment'){ var it = op.item || op.product, t = String(op.text || '').trim();
+    if (t) day(op.date).comments[it] = t; else { var x = j.dates.find(function(r){ return r.date === op.date; }); if (x) delete x.comments[it]; } }
+  else if (k === 'date') day(op.date);
+  else if (k === 'delete_date') j.dates = j.dates.filter(function(r){ return r.date !== op.date; });
+  else if (k === 'item'){ if (op.id === 'general') return; var p = j.products.find(function(r){ return r.id === op.id; });
+    if (p){ p.sku = op.sku || ''; p.name = op.name || ''; } else j.products.push({id: op.id, sku: op.sku || '', name: op.name || ''}); }
+  else if (k === 'delete_item'){ j.products = j.products.filter(function(r){ return r.id !== op.id; });
+    j.dates.forEach(function(r){ delete r.comments[op.id]; }); }
+}
+window.__demoToast = function(text){
+  try{ var d = document.getElementById('demoToast');
+    if (!d){ d = document.createElement('div'); d.id = 'demoToast';
+      d.style.cssText = 'position:fixed;left:50%;bottom:58px;transform:translateX(-50%);z-index:9999;max-width:min(92vw,520px);'
+        + 'background:#1D1D23;color:#F5F5FA;border:1px solid #7B61FF;border-radius:10px;padding:10px 14px;font:13px/1.4 Inter,Arial,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.35)';
+      document.body.appendChild(d); }
+    d.textContent = text; d.style.display = 'block'; clearTimeout(d._t); d._t = setTimeout(function(){ d.style.display = 'none'; }, 4200);
+  }catch(e){}
+};
+function resp(obj, status){ return Promise.resolve(new Response(JSON.stringify(obj), {status: status || 200, headers: {'Content-Type': 'application/json'}})); }
+var END = '2026-10-22', PRESETS = [1, 7, 14, 30];
+function days(a, b){ return Math.round((RD.parse(b + 'T00:00:00Z') - RD.parse(a + 'T00:00:00Z')) / 864e5) + 1; }
+function preset(q){
+  var n = days(q.get('from'), q.get('to')), best = PRESETS.reduce(function(a, p){ return Math.abs(p - n) < Math.abs(a - n) ? p : a; }, 7);
+  var exact = q.get('to') === END && best === n;
+  if (exact && q.get('cto')){ var c1 = new RD(RD.parse(q.get('from') + 'T00:00:00Z') - n * 864e5).toISOString().slice(0, 10);
+    exact = q.get('cfrom') === c1 && days(q.get('cfrom'), q.get('cto')) === n; }
+  if (!exact) __demoToast('В демо данные есть за «Вчера», 7, 14 и 30 дней до 22.10.2026 — показан ближайший период (' + best + ' дн.).');
+  return best;
+}
+window.__demoXlsx = function(qs){ var q = new URLSearchParams(qs); return 'x/wb/rnp-' + preset(q) + '.xlsx'; };
+var realFetch = window.fetch;
+window.fetch = function(u, o){
+  var s = String(u && u.url || u), m = (o && o.method || 'GET').toUpperCase();
+  if (s.indexOf('/api/') !== 0) return realFetch.apply(this, arguments);
+  var path = s.split('?')[0], q = new URLSearchParams(s.split('?')[1] || '');
+  if (path === '/api/comments'){
+    var j = jget();
+    if (m === 'POST'){ var b = {}; try{ b = JSON.parse(o.body || '{}'); }catch(e){}
+      (b.ops || [b]).forEach(function(op){ japply(j, op); }); jset(j); return resp({ok: true, state: j}); }
+    return resp(j);
+  }
+  var A = window.__DEMO_API;
+  if (path === '/api/rnp' && A) return resp(A.rnp[preset(q) + '-' + (q.get('group') || 'sku') + '-' + (q.get('all') || '0')]);
+  if (path === '/api/dash' && A) return resp(A.dash[String(preset(q))]);
+  if (path === '/api/note') return resp({ok: true});
+  __demoToast('Это демо: загрузка файлов и сохранение на сервер отключены — данные уже заполнены.');
+  return resp({error: 'демо: загрузка отключена'}, 400);
+};
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Реклама WB · Северный дом</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  color-scheme:light;
+  --bg:#e9ebee; --panel:#f4f5f7; --panel-2:#e3e6ea; --stroke:#d2d7de;
+  --text:#1b1f26; --text-2:#3a414c; --muted:#5f6772;
+  --glaze:#3d7888; --glaze-dim:#6f98a3; --clay:#b86a25; --red:#b3432f; --sage:#5a7d45;
+  --bar:#3d7888; --grid:#dde1e6; --target:#8a929c;
+  --glow1:#dfe5ea; --glow2:#e3e7ea; --radius:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#14171c; --panel:#1b1f26; --panel-2:#21262f; --stroke:#2c323d;
+    --text:#e9e6df; --text-2:#cfd3d9; --muted:#9aa2af;
+    --glaze:#7fb0bd; --glaze-dim:#4c7885; --clay:#d98e4a; --red:#c6533f; --sage:#8bab72;
+    --bar:#7fb0bd; --grid:#262b34; --target:#6d7580;
+    --glow1:#1d2530; --glow2:#1a2126;
+  }
+}
+:root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#14171c; --panel:#1b1f26; --panel-2:#21262f; --stroke:#2c323d;
+    --text:#e9e6df; --text-2:#cfd3d9; --muted:#9aa2af;
+    --glaze:#7fb0bd; --glaze-dim:#4c7885; --clay:#d98e4a; --red:#c6533f; --sage:#8bab72;
+    --bar:#7fb0bd; --grid:#262b34; --target:#6d7580;
+    --glow1:#1d2530; --glow2:#1a2126;
+}
+*{box-sizing:border-box}
+body{margin:0;color:var(--text);font:15px/1.5 'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;
+  background:radial-gradient(circle at 15% 0%,var(--glow1) 0%,transparent 45%),radial-gradient(circle at 100% 10%,var(--glow2) 0%,transparent 40%),var(--bg);background-color:var(--bg)}
+.wrap{max-width:1600px;margin:0 auto;padding:40px 24px 90px}
+.display{font-family:'Space Grotesk',sans-serif}
+.mono,.num{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+header.hero{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;padding-bottom:26px;margin-bottom:22px;border-bottom:1px solid var(--stroke);flex-wrap:wrap}
+.kicker{font-family:'JetBrains Mono',monospace;font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--glaze);margin:0 0 10px}
+h1{font-family:'Space Grotesk',sans-serif;font-size:clamp(28px,4vw,40px);margin:0 0 8px;font-weight:600;line-height:1.08}
+.sub{color:var(--muted);font-size:15px;max-width:620px;margin:0}
+.period{text-align:right;font-family:'JetBrains Mono',monospace;color:var(--muted);font-size:13px}
+.period b{color:var(--text);display:block;font-size:15px;margin-bottom:4px}
+.tabs{display:flex;gap:6px;margin-bottom:28px;flex-wrap:wrap;align-items:center}
+.tabs{border-bottom:1px solid var(--stroke)}
+.tab{font:600 14.5px 'Inter',sans-serif;background:none;color:var(--muted);border:0;border-bottom:2px solid transparent;padding:12px 6px;margin-right:18px;cursor:pointer}
+.tab .n{font-family:'JetBrains Mono',monospace;color:var(--glaze-dim);margin-right:8px;font-size:12px}
+.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--glaze)}
+.tab[aria-selected="true"] .n{color:var(--glaze)}
+.tab:focus-visible,.chip:focus-visible{outline:2px solid var(--clay);outline-offset:2px}
+.spacer{flex:1}
+.verdict{border-radius:var(--radius);background:var(--panel-2);border:1px solid var(--stroke);padding:26px 28px;margin-bottom:32px;display:flex;gap:26px;align-items:center;position:relative;overflow:hidden}
+.verdict::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(115deg,color-mix(in srgb,var(--glaze) 7%,transparent) 0 2px,transparent 2px 22px);pointer-events:none}
+.verdict-tag{flex-shrink:0;font:700 15px 'Space Grotesk',sans-serif;letter-spacing:.02em;background:var(--clay);color:#1b140a;padding:12px 20px;border-radius:999px;position:relative}
+.verdict-text{font-size:15.5px;line-height:1.6;color:var(--text-2);position:relative}
+.verdict-text b{color:var(--text)}
+@media (max-width:700px){.verdict{flex-direction:column;align-items:flex-start}}
+.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--stroke);border:1px solid var(--stroke);border-radius:var(--radius);overflow:hidden;margin-bottom:44px}
+.kpi{background:var(--panel);padding:20px 16px}
+.kpi .label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
+.kpi .value{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700}
+.kpi .note{font-size:12px;color:var(--muted);margin-top:6px}
+@media (max-width:900px){.kpi-grid{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:560px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+.good{color:var(--sage)!important}.warn{color:var(--clay)!important}.bad{color:var(--red)!important}
+section{margin-bottom:50px}
+.section-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+.section-num{font-family:'JetBrains Mono',monospace;color:var(--glaze-dim);font-size:13px}
+h2{font-family:'Space Grotesk',sans-serif;font-size:21px;margin:0;font-weight:600}
+.section-desc{color:var(--muted);font-size:14px;margin:6px 0 0;line-height:1.6}
+.funnel{display:flex;align-items:stretch}
+.funnel-step{flex:1;background:var(--panel);border:1px solid var(--stroke);padding:22px 18px}
+.funnel-step:not(:last-child){border-right:none}
+.funnel-step:first-child{border-radius:var(--radius) 0 0 var(--radius)}
+.funnel-step:last-child{border-radius:0 var(--radius) var(--radius) 0}
+.funnel-step .n{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700}
+.funnel-step .l{font-size:12px;color:var(--muted);margin-top:6px;text-transform:uppercase;letter-spacing:.06em}
+.funnel-arrow{display:flex;align-items:center;justify-content:center;width:84px;flex-shrink:0;color:var(--muted);font:12px/1.4 'JetBrains Mono',monospace;text-align:center;background:var(--panel-2);border-top:1px solid var(--stroke);border-bottom:1px solid var(--stroke)}
+@media (max-width:820px){.funnel{flex-direction:column}.funnel-arrow{width:auto;height:40px}.funnel-step{border-right:1px solid var(--stroke)!important;border-radius:0!important}}
+.type-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media (max-width:900px){.type-cards{grid-template-columns:1fr}}
+.tcard{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--radius);padding:22px}
+.tcard.winner{border-color:var(--sage)}
+.tcard h3{margin:0;font:600 16px 'Space Grotesk',sans-serif}
+.tcard .big{font:700 30px 'JetBrains Mono',monospace;margin:14px 0 2px}
+.tcard .lbl{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.tmetrics{display:flex;gap:22px;margin-top:16px;padding-top:16px;border-top:1px solid var(--stroke);flex-wrap:wrap}
+.tmetrics div{font-size:12.5px;color:var(--muted)}
+.tmetrics b{display:block;color:var(--text);font:600 15px 'JetBrains Mono',monospace;margin-bottom:2px}
+.badge{display:inline-block;font-size:11px;padding:2px 9px;border-radius:999px;margin-left:8px;font-weight:700;vertical-align:middle}
+.badge.win{background:var(--sage);color:#132014}.badge.lose{background:var(--red);color:#fff}.badge.mid{background:var(--clay);color:#1b140a}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--stroke);border-radius:var(--radius);overflow:hidden}
+thead th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:12px 14px;background:var(--panel-2);font-weight:600;border-bottom:1px solid var(--stroke);white-space:nowrap}
+tbody td{padding:12px 14px;font-size:14px;border-bottom:1px solid var(--stroke)}
+tbody tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;white-space:nowrap}
+td.name{color:var(--text-2);min-width:220px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:1000px){.two-col{grid-template-columns:1fr}}
+.table-title{font-size:13.5px;font-weight:600;color:var(--muted);margin-bottom:10px;display:flex;justify-content:space-between;gap:10px}
+.table-title .tot{color:var(--red);font-family:'JetBrains Mono',monospace}
+.rec-list,.note-list{display:flex;flex-direction:column}
+.rec{display:grid;grid-template-columns:52px 1fr;gap:18px;background:var(--panel);border:1px solid var(--stroke);padding:20px 22px}
+.rec:first-child,.note-item:first-child{border-radius:var(--radius) var(--radius) 0 0}
+.rec:last-child,.note-item:last-child{border-radius:0 0 var(--radius) var(--radius)}
+.rec:not(:first-child),.note-item:not(:first-child){border-top:none}
+.rec-num{font:700 20px 'JetBrains Mono',monospace;color:var(--glaze-dim)}
+.rec-body b{display:block;font:600 15.5px 'Space Grotesk',sans-serif;margin-bottom:5px}
+.rec-body p{margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6}
+.fixes{display:inline-block;margin-top:8px;font:11.5px 'JetBrains Mono',monospace;color:var(--glaze);background:color-mix(in srgb,var(--glaze) 12%,transparent);padding:3px 9px;border-radius:6px}
+.note-item{display:grid;grid-template-columns:36px 1fr;gap:16px;background:var(--panel);border:1px solid var(--stroke);padding:14px 20px}
+.note-num{font:700 12px 'JetBrains Mono',monospace;color:var(--glaze-dim);padding-top:3px}
+.note-item p{margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6}
+.note-item p b{color:var(--text)}
+/* charts */
+.chart{position:relative}
+.chart h4{margin:0 0 4px;font:600 12.5px 'Inter',sans-serif;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.chart svg{width:100%;display:block;overflow:visible}
+.chart .ax{fill:var(--muted);font:10.5px 'JetBrains Mono',monospace}
+.chart .vl{fill:var(--text-2);font:10.5px 'JetBrains Mono',monospace}
+.tip{position:absolute;pointer-events:none;background:var(--text);color:var(--bg);font-size:12.5px;border-radius:8px;padding:6px 10px;white-space:nowrap;opacity:0;z-index:5}
+.day-charts{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media (max-width:900px){.day-charts{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--radius);padding:18px}
+/* filters */
+.filters{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;background:var(--panel);border:1px solid var(--stroke);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px}
+.fg{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.fg .lbl{font-size:12.5px;color:var(--muted);margin-right:2px}
+.chip{border:1px solid var(--stroke);background:var(--panel-2);color:var(--text);border-radius:999px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--glaze);color:var(--bg);border-color:var(--glaze)}
+.filters select,.filters input[type=search]{font:inherit;font-size:13px;color:var(--text);background:var(--panel-2);border:1px solid var(--stroke);border-radius:8px;padding:6px 10px}
+.count{font-size:13px;color:var(--muted);margin:0 0 18px}
+/* article card */
+.acard{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--radius);padding:22px;margin-bottom:22px}
+.acard-h{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-bottom:16px}
+.acard-h h3{margin:0;font:600 19px 'Space Grotesk',sans-serif}
+.acard-h .meta{color:var(--muted);font-size:13px;margin-top:3px}
+.pill{font:700 12.5px 'Space Grotesk',sans-serif;border-radius:999px;padding:6px 12px;white-space:nowrap}
+.pill.good{background:color-mix(in srgb,var(--sage) 18%,transparent)}.pill.warn{background:color-mix(in srgb,var(--clay) 18%,transparent)}.pill.bad{background:color-mix(in srgb,var(--red) 18%,transparent)}
+.camps{display:grid;gap:16px;grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:1000px){.camps{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.camps{grid-template-columns:1fr}}
+.camp{background:var(--panel-2);border:1px solid var(--stroke);border-radius:12px;padding:16px;display:grid;gap:14px;align-content:start;min-width:0}
+.camp-h{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.camp-h b{font:600 15px 'Space Grotesk',sans-serif;display:block}
+.camp-h span{font-size:12.5px;color:var(--muted)}
+.tdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--glaze)}
+.cmp{margin-top:18px}
+.cmp table tbody td{font-size:15px}
+.todo{margin-top:16px;background:var(--panel-2);border:1px solid var(--stroke);border-radius:12px;padding:16px 20px}
+.todo h4{margin:0 0 10px;font:600 16px 'Space Grotesk',sans-serif}
+.todo ol{margin:0;padding-left:22px;display:grid;gap:8px;font-size:15.5px;line-height:1.6;color:var(--text-2)}
+.todo li b{color:var(--text)}
+
+.hs{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.hs button{width:34px;height:34px;border-radius:50%;border:1px solid var(--stroke);background:var(--panel);color:var(--text);cursor:pointer;font-size:15px}
+.hs .track{flex:1;height:4px;background:var(--panel-2);border-radius:4px;position:relative}
+.hs .thumb{position:absolute;top:0;height:4px;background:var(--glaze);border-radius:4px}
+.hint{font-size:12.5px;color:var(--muted);margin:0 0 16px}
+.camp-row{display:flex;gap:18px;overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:14px;scrollbar-width:none}
+.camp-row::-webkit-scrollbar{display:none}
+.camp-col{flex:0 0 max(calc(50% - 9px),min(600px,92vw));scroll-snap-align:start;display:flex;flex-direction:column;gap:12px}
+.col-head{display:flex;gap:10px;align-items:baseline;min-height:74px}
+.col-num{font:700 13px 'JetBrains Mono',monospace;color:var(--glaze-dim)}
+.col-head h2{font-size:18px}
+.col-head .section-desc{font-size:13px;margin-top:4px}
+.ccard{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--radius);overflow:hidden}
+.cblock{padding:18px 22px;border-bottom:1px solid var(--stroke)}
+.cblock:last-child{border-bottom:0}
+.ckicker{font:500 12px 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--glaze);margin-bottom:6px}
+.ctitle{font:600 19px 'Space Grotesk',sans-serif;margin:0 0 10px}
+.cpill{display:inline-block;font:700 12px 'Inter',sans-serif;border-radius:999px;padding:3px 10px;color:#14171c}
+.cpill.cp-good{background:var(--sage)}.cpill.cp-warn{background:var(--clay)}.cpill.cp-bad{background:var(--red);color:#fff}
+.blabel{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px}
+.mrow{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--stroke)}
+.mrow:last-child{border-bottom:0}
+.mrow .k{font-size:14px;color:var(--text-2)}
+.mrow .v{font:700 16px 'JetBrains Mono',monospace;text-align:right}
+.mrow .d{font:12px 'JetBrains Mono',monospace;color:var(--muted);min-width:92px;text-align:right}
+.wtab{width:100%;border-collapse:collapse}
+.wtab th{font:500 11px 'Inter',sans-serif;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;text-align:right;padding:4px 6px 8px;border-bottom:1px solid var(--stroke)}
+.wtab th:first-child{text-align:left}
+.wtab td{padding:7px 6px;border-bottom:1px solid var(--stroke);text-align:right;font:14px 'JetBrains Mono',monospace;white-space:nowrap}
+.wtab td:first-child{text-align:left;font:14px 'Inter',sans-serif;color:var(--text-2);white-space:normal}
+.wtab td.cur{font-weight:700;font-size:15px;color:var(--text);background:color-mix(in srgb,var(--glaze) 7%,transparent)}
+.wtab td.pv{color:var(--muted)}
+.wtab tr.sub td:first-child{padding-left:16px;font-size:13px}
+.wtab tr:last-child td{border-bottom:0}
+.wtab .dyn{font-weight:700;border-radius:6px;padding:2px 6px}
+.wtab .dyn.good{background:color-mix(in srgb,var(--sage) 18%,transparent)}
+.wtab .dyn.bad{background:color-mix(in srgb,var(--red) 18%,transparent)}
+.tblock{padding:14px 12px}
+.tblock .blabel{padding:0 10px}
+.dtab-wrap{overflow-x:auto}
+.dtab{width:100%;border-collapse:collapse;font:12.5px 'JetBrains Mono',monospace}
+.dtab th{font:500 11px 'JetBrains Mono',monospace;color:var(--muted);text-align:right;padding:4px 5px 7px;border-bottom:1px solid var(--stroke);white-space:nowrap}
+.dtab th:first-child{text-align:left}
+.dtab th.we{color:var(--red)}
+.dtab th .nmk{color:var(--clay);margin-left:2px}
+.dtab td{padding:5px 5px;text-align:right;border-bottom:1px solid color-mix(in srgb,var(--stroke) 60%,transparent);white-space:nowrap;color:var(--text-2)}
+.dtab td:first-child{text-align:left;font:13px 'Inter',sans-serif;color:var(--text-2);white-space:normal;min-width:120px}
+.dtab td.cur,.dtab th.cur{background:color-mix(in srgb,var(--glaze) 8%,transparent);text-align:right}
+.dtab td.cur{font-weight:700;font-size:13.5px;color:var(--text);line-height:1.25}
+.dtab td.cur small{font-weight:400;color:var(--muted);font-size:11px}
+.dtab td.cur .dyn{display:block;width:max-content;margin:2px 0 0 auto;font-size:11px;font-weight:700;border-radius:5px;padding:1px 5px;color:var(--muted)}
+.dtab .dyn.good{background:color-mix(in srgb,var(--sage) 22%,transparent);color:var(--sage)}
+.dtab .dyn.bad{background:color-mix(in srgb,var(--red) 22%,transparent);color:#e8806d}
+.dtab tr.sub td:first-child{padding-left:14px;font-size:12px;color:var(--muted)}
+.dtab tr.key td:first-child{color:var(--text);font-weight:600}
+.dtab tr.sect td{font:600 11px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;padding:12px 5px 6px;border-bottom:1px solid var(--stroke);background:none}
+.dtab .mb{height:24px;display:flex;align-items:flex-end;justify-content:flex-end;margin-top:3px}
+.dtab .mb i{display:block;width:70%;max-width:34px;border-radius:3px 3px 0 0;opacity:.85}
+.dtab tr.hb td{vertical-align:bottom}
+.dtab tr.hb td:first-child,.dtab tr.hb td.cur{vertical-align:middle}
+.dtab td.dc-good{color:var(--sage)}.dtab td.dc-warn{color:var(--clay)}.dtab td.dc-bad{color:#e8806d}
+.pper{position:relative;margin-right:10px}
+#pperBtn b{font-family:'JetBrains Mono',monospace;margin-left:6px;font-weight:700}
+.ppop{position:absolute;top:calc(100% + 10px);right:0;z-index:60;display:flex;gap:18px;background:var(--panel);border:1px solid var(--stroke);border-radius:12px;padding:16px;box-shadow:0 14px 38px rgba(0,0,0,.18);max-width:calc(100vw - 48px)}
+.ppop[hidden]{display:none}
+.ppop-l{display:flex;flex-direction:column;gap:6px;min-width:168px}
+.ppop-t{font:500 11px 'JetBrains Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:2px 0 4px}
+.pq{border:1px solid var(--stroke);background:var(--panel-2);color:var(--text);border-radius:8px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer;text-align:left}
+.pq:hover{border-color:var(--glaze)}
+.pq.on{background:var(--glaze);color:var(--bg);border-color:var(--glaze)}
+.ppop-r{display:flex;flex-direction:column}
+.pcal-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.pcal-h b{font:600 13.5px 'Inter',sans-serif;text-transform:capitalize}
+.pcal-h button{width:28px;height:28px;border-radius:50%;border:1px solid var(--stroke);background:var(--panel);color:var(--text);cursor:pointer;line-height:1;font-size:15px}
+.pcal{display:grid;grid-template-columns:repeat(7,34px);gap:2px}
+.pcal .wd{font:500 10.5px 'JetBrains Mono',monospace;color:var(--muted);text-align:center;padding:4px 0;text-transform:uppercase}
+.pcal button{width:34px;height:30px;border:0;border-radius:8px;background:none;color:var(--text);font:13px 'JetBrains Mono',monospace;cursor:pointer;position:relative}
+.pcal button:hover:not(:disabled){background:var(--panel-2)}
+.pcal button:disabled{color:var(--muted);opacity:.35;cursor:default}
+.pcal button.inr{background:color-mix(in srgb,var(--glaze) 18%,transparent)}
+.pcal button.edge{background:var(--glaze);color:var(--bg);font-weight:700}
+.pcal button.pend{outline:2px solid var(--clay);outline-offset:-2px}
+.pcal button.wkd::after{content:"";position:absolute;left:50%;bottom:3px;width:4px;height:4px;border-radius:50%;background:var(--sage);transform:translateX(-50%)}
+.pcal button.edge.wkd::after{background:var(--bg)}
+.pcal-hint{font-size:12px;color:var(--muted);margin:8px 0 0;max-width:250px}
+.ch2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.ch2 .chart{margin-bottom:12px}
+.ch2 h5{margin:0 0 6px;font:600 12px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase}
+@media (max-width:640px){.ch2{grid-template-columns:1fr}}
+.drrbox{display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--panel-2);border:1px solid var(--stroke);border-radius:10px;padding:14px 16px;margin-top:12px}
+.drrbox .t{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;line-height:1.5}
+.drrbox .big{font:700 30px 'JetBrains Mono',monospace}
+.bench{display:grid;grid-template-columns:90px 1fr 84px;gap:12px;align-items:center;padding:7px 0}
+.bench .k{font-size:13.5px;color:var(--text-2)}
+.bench .tr{height:6px;background:var(--panel-2);border-radius:6px;position:relative}
+.bench .avg{position:absolute;top:-4px;width:2px;height:14px;background:var(--muted)}
+.bench .dot{position:absolute;top:-4px;width:14px;height:14px;border-radius:50%;margin-left:-7px;border:2px solid var(--panel)}
+.bench .v{font:700 14px 'JetBrains Mono',monospace;text-align:right}
+.bnote{font-size:12.5px;color:var(--muted);margin:8px 0 0;line-height:1.55}
+.ccard .chart{margin-bottom:12px}
+.ccard .chart:last-child{margin-bottom:0}
+.sib table{font-size:14px}
+.sib tbody td{font-size:14px;padding:9px 10px}
+.sib thead th{padding:9px 10px}
+.sib tr.me td{background:color-mix(in srgb,var(--glaze) 10%,transparent)}
+.ctodo ol{margin:0;padding-left:22px;display:grid;gap:10px;font-size:16px;line-height:1.6;color:var(--text-2)}
+.ctodo li b{color:var(--text)}
+.agrp{font:500 11.5px 'JetBrains Mono',monospace;color:var(--clay);letter-spacing:.06em;text-transform:uppercase}
+.mgr{font-size:13.5px;color:var(--muted);display:flex;gap:8px;align-items:center;margin-right:10px}
+.mgr select{font:600 14px 'Inter',sans-serif;color:var(--text);background:var(--panel);border:1px solid var(--glaze);border-radius:8px;padding:7px 12px}
+footer{margin-top:50px;padding-top:22px;border-top:1px solid var(--stroke);color:var(--muted);font-size:12.5px;line-height:1.7}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="hero">
+  <div>
+    <p class="kicker">WB · Рекламный кабинет · Аудит эффективности</p>
+    <h1 id="h1">Северный дом</h1>
+    <p class="sub" id="hsub"></p>
+  </div>
+  <div class="period" id="period"></div>
+</header>
+<div class="tabs" role="tablist">
+  <button class="tab" role="tab" id="t-all" aria-selected="true"><span class="n">01</span>Общий — неделя целиком</button>
+  <button class="tab" role="tab" id="t-camp" aria-selected="false"><span class="n">02</span>По кампаниям</button>
+  <button class="tab" role="tab" id="t-assoc" aria-selected="false"><span class="n">03</span>Ассоциированные заказы</button>
+  <button class="tab" role="tab" id="t-log" aria-selected="false"><span class="n">04</span>Журнал изменений</button>
+  <span class="spacer"></span>
+  <div class="pper" id="pper"><button class="chip" id="pperBtn">Период: <b id="pperLbl"></b></button>
+    <div class="ppop" id="ppop" hidden>
+      <div class="ppop-l">
+        <div class="ppop-t">Быстрые даты</div>
+        <button type="button" class="pq" data-q="7">Последние 7 дней</button>
+        <button type="button" class="pq" data-q="14">Последние 14 дней</button>
+        <button type="button" class="pq" data-q="30">Последние 30 дней</button>
+        <button type="button" class="pq" data-all="1">Весь период</button>
+        <div class="ppop-t" style="margin-top:12px">Готовые недели</div>
+        <div id="pwks" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+      <div class="ppop-r">
+        <div class="pcal-h"><button type="button" id="pcalPrev" aria-label="Предыдущий месяц">‹</button><b id="pcalTitle"></b><button type="button" id="pcalNext" aria-label="Следующий месяц">›</button></div>
+        <div class="pcal" id="pcal"></div>
+        <p class="pcal-hint" id="pcalHint">Два клика: начало и конец периода. Зелёная точка — начало готовой недели.</p>
+      </div>
+    </div>
+  </div>
+  <label class="mgr">Управляющий: <select id="mgr"><option value="">Все артикулы</option></select></label>
+  <button class="chip" id="theme">◐ Тема</button>
+</div>
+<div id="p-all"></div>
+<div id="p-camp" hidden>
+  <div class="filters">
+    <div class="fg"><span class="lbl">ДРР:</span>
+      <button class="chip" data-f="st" data-v="all" aria-pressed="true">Все</button>
+      <button class="chip" data-f="st" data-v="over">Выше 5%</button>
+      <button class="chip" data-f="st" data-v="ok">≤ 5%</button>
+      <button class="chip" data-f="st" data-v="none">Без заказов</button></div>
+    <div class="fg"><span class="lbl">Тип РК:</span>
+      <button class="chip" data-f="tp" data-v="all" aria-pressed="true">Все</button>
+      <button class="chip" data-f="tp" data-v="cpc">За клики</button>
+      <button class="chip" data-f="tp" data-v="uni">Единая</button>
+      <button class="chip" data-f="tp" data-v="man">Ручная</button></div>
+    <div class="fg"><span class="lbl">Активность:</span>
+      <button class="chip" data-f="ac" data-v="all" aria-pressed="true">Все</button>
+      <button class="chip" data-f="ac" data-v="yes" title="Работала хотя бы один из двух последних дней недели">Активные</button>
+      <button class="chip" data-f="ac" data-v="no" title="Не работала ни один из двух последних дней недели">Не работали 2 дня</button></div>
+    <div class="fg"><span class="lbl">Расход от:</span><select id="minsp"><option value="0">0 ₽</option><option value="300">300 ₽</option><option value="1000">1 000 ₽</option><option value="3000">3 000 ₽</option></select></div>
+    <div class="fg"><span class="lbl">Предмет:</span><select id="subj"><option value="">Все</option></select></div>
+    <div class="fg"><label class="lbl"><input type="checkbox" id="multi"> Только с несколькими РК</label></div>
+    <div class="fg"><input type="search" id="q" placeholder="Артикул или название"></div>
+  </div>
+  <div class="count" id="count"></div>
+  <div class="hs"><button id="hl" aria-label="Прокрутить влево">←</button><div class="track" id="htr"><div class="thumb" id="hth"></div></div><button id="hr" aria-label="Прокрутить вправо">→</button></div>
+  <p class="hint">← прокрутите вбок, чтобы увидеть следующие кампании →</p>
+  <div class="camp-row" id="list"></div>
+</div>
+<div id="p-assoc" hidden></div>
+<div id="p-log" hidden></div>
+<footer id="foot"></footer>
+</div>
+<script>
+const WEEKS = {"2026-10-16": {"managers": ["Анна", "Игорь"], "cabinet": "Северный дом", "days": ["2026-10-16", "2026-10-17", "2026-10-18", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22"], "has_assoc": true, "rnp_bad": [], "articles": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303737, "name": "Клики 270000101 плед графит", "type": "ОЗК (CPC)", "daily": {"imp": [3528, 2402, 6560, 2119, 2723, 2791, 5202], "clk": [90, 70, 154, 59, 69, 72, 134], "cart": [10, 7, 19, 6, 6, 7, 11], "ord": [8, 11, 11, 11, 9, 6, 12], "rev": [11600, 15950, 15950, 15950, 13050, 8700, 17400], "spend": [1404, 903, 1576, 759, 1069, 912, 1786], "dord": [6, 8, 8, 8, 6, 4, 9], "drev": [8700, 11600, 11600, 11600, 8700, 5800, 13050]}, "assoc": [{"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "cart": 6, "ord": 1, "rev": 1783}]}], "mgr": ["Анна"]}, {"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303774, "name": "Единая 270000102 плед 200", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [3316, 1427, 2012, 3965, 3032, 1410, 3359], "clk": [79, 48, 58, 112, 69, 33, 108], "cart": [11, 5, 7, 13, 9, 4, 13], "ord": [5, 6, 6, 8, 8, 4, 6], "rev": [9150, 10980, 10980, 14640, 14640, 7320, 10980], "spend": [818, 642, 656, 1102, 976, 448, 1405], "dord": [4, 4, 4, 6, 6, 3, 4], "drev": [7320, 7320, 7320, 10980, 10980, 5490, 7320]}, "assoc": [{"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "cart": 2, "ord": 3, "rev": 7092}]}], "mgr": ["Анна"]}, {"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303959, "name": "Единая 270000103 плед вязаный", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [1102, 1791, 1588, 2237, 1868, 1654, 1380], "clk": [35, 43, 53, 55, 61, 52, 34], "cart": [3, 4, 4, 6, 7, 6, 2], "ord": [3, 3, 4, 4, 6, 5, 4], "rev": [7260, 7260, 9680, 9680, 14520, 12100, 9680], "spend": [456, 665, 592, 596, 908, 799, 475], "dord": [2, 2, 3, 3, 4, 4, 3], "drev": [4840, 4840, 7260, 7260, 9680, 9680, 7260]}, "assoc": [{"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "cart": 3, "ord": 2, "rev": 3566}, {"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "cart": 5, "ord": 4, "rev": 5652}]}], "mgr": ["Анна"]}, {"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "brand": "Северный дом", "campaigns": [{"id": 303811, "name": "Клики 270000104 вафельные полотенца", "type": "ОЗК (CPC)", "daily": {"imp": [1632, 2090, 1549, 1826, 1917, 2529, 2110], "clk": [47, 61, 40, 42, 47, 72, 57], "cart": [6, 6, 3, 3, 6, 6, 6], "ord": [11, 11, 12, 11, 11, 12, 11], "rev": [7370, 7370, 8040, 7370, 7370, 8040, 7370], "spend": [587, 804, 504, 597, 694, 971, 603], "dord": [8, 8, 9, 8, 8, 9, 8], "drev": [5360, 5360, 6030, 5360, 5360, 6030, 5360]}, "assoc": [{"nm": 270000105, "vendor": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "subject": "Полотенца", "cart": 2, "ord": 2, "rev": 1678}]}], "mgr": ["Игорь"]}, {"nm": 270000105, "vendor": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "subject": "Полотенца", "brand": "Северный дом", "campaigns": [{"id": 303848, "name": "Единая 270000105 махровое", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [513, 1004, 1430, 1289, 1149, 692, 1036], "clk": [12, 28, 49, 35, 26, 18, 32], "cart": [1, 3, 4, 4, 2, 1, 3], "ord": [4, 3, 9, 5, 6, 2, 4], "rev": [3440, 2580, 7740, 4300, 5160, 1720, 3440], "spend": [192, 326, 669, 367, 334, 175, 300], "dord": [3, 2, 6, 4, 4, 1, 3], "drev": [2580, 1720, 5160, 3440, 3440, 860, 2580]}, "assoc": [{"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "cart": 2, "ord": 1, "rev": 652}]}], "mgr": ["Игорь"]}, {"nm": 270000106, "vendor": "NHW-TBL-140", "name": "Скатерть водоотталкивающая 140×180", "subject": "Скатерти", "brand": "Северный дом", "campaigns": [{"id": 303996, "name": "Ручная 270000106 - скатерть", "type": "ОЗП (CPM, Ручная)", "daily": {"imp": [1199, 1371, 1153, 751, 669, 1981, 841], "clk": [28, 42, 28, 22, 16, 49, 19], "cart": [3, 3, 2, 2, 1, 4, 1], "ord": [4, 4, 4, 2, 3, 4, 4], "rev": [4600, 4600, 4600, 2300, 3450, 4600, 4600], "spend": [329, 411, 343, 267, 252, 461, 310], "dord": [3, 3, 3, 1, 2, 3, 3], "drev": [3450, 3450, 3450, 1150, 2300, 3450, 3450]}, "assoc": [{"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "cart": 4, "ord": 1, "rev": 652}, {"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "cart": 3, "ord": 2, "rev": 4728}]}], "mgr": ["Игорь"]}, {"nm": 270000107, "vendor": "NHW-APR-01", "name": "Фартук кухонный с карманом, лён", "subject": "Фартуки", "brand": "Северный дом", "campaigns": [], "mgr": ["Игорь"]}, {"nm": 270000108, "vendor": "NHW-MIT-2", "name": "Прихватки-варежки, 2 шт", "subject": "Прихватки", "brand": "Северный дом", "campaigns": [], "mgr": ["Игорь"]}, {"nm": 270000109, "vendor": "NHW-PIL-50", "name": "Наволочки сатин 50×70, 2 шт", "subject": "Наволочки", "brand": "Северный дом", "campaigns": [{"id": 303885, "name": "Ручная 270000109 - наволочки сатин", "type": "ОЗП (CPM, Ручная)", "daily": {"imp": [1078, 581, 942, 1883, 359, 1419, 1094], "clk": [32, 19, 27, 44, 11, 32, 28], "cart": [3, 1, 3, 3, 1, 4, 2], "ord": [5, 2, 7, 8, 3, 6, 4], "rev": [4800, 1920, 6720, 7680, 2880, 5760, 3840], "spend": [348, 192, 441, 612, 173, 376, 329], "dord": [4, 1, 5, 6, 2, 4, 3], "drev": [3840, 960, 4800, 5760, 1920, 3840, 2880]}, "assoc": [{"nm": 270000105, "vendor": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "subject": "Полотенца", "cart": 5, "ord": 3, "rev": 2517}, {"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "cart": 2, "ord": 1, "rev": 2364}]}], "mgr": ["Анна"]}, {"nm": 270000110, "vendor": "NHW-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин", "subject": "Постельное белье", "brand": "Северный дом", "campaigns": [{"id": 303922, "name": "Клики 270000110 кпб сатин", "type": "ОЗК (CPC)", "daily": {"imp": [1186, 1055, 1681, 866, 1409, 2143, 2128], "clk": [37, 25, 47, 23, 44, 51, 64], "cart": [3, 2, 4, 2, 5, 4, 6], "ord": [1, 1, 2, 1, 3, 3, 2], "rev": [3580, 3580, 7160, 3580, 10740, 10740, 7160], "spend": [460, 343, 699, 297, 664, 585, 883], "dord": [1, 1, 1, 1, 2, 2, 1], "drev": [3580, 3580, 3580, 3580, 7160, 7160, 3580]}, "assoc": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "cart": 6, "ord": 4, "rev": 5652}]}], "mgr": ["Анна"]}, {"nm": 270000111, "vendor": "NHW-SHT-160", "name": "Простыня на резинке 160×200, сатин", "subject": "Простыни", "brand": "Северный дом", "campaigns": [{"id": 304033, "name": "Клики 270000111 простыня", "type": "ОЗК (CPC)", "daily": {"imp": [531, 806, 1265, 1168, 565, 931, 822], "clk": [12, 19, 36, 40, 20, 32, 28], "cart": [1, 1, 4, 5, 1, 2, 3], "ord": [1, 2, 5, 5, 3, 5, 5], "rev": [1250, 2500, 6250, 6250, 3750, 6250, 6250], "spend": [131, 271, 579, 547, 288, 339, 310], "dord": [1, 1, 4, 4, 2, 4, 4], "drev": [1250, 1250, 5000, 5000, 2500, 5000, 5000]}, "assoc": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "cart": 4, "ord": 4, "rev": 5652}]}], "mgr": ["Анна"]}], "rnp": {"270000101": {"resp": "Анна", "imp": [3572, 5838, 7788, 5149, 6076, 3232, 5436], "clk": [246, 309, 428, 313, 279, 219, 346], "cart": [43, 54, 68, 53, 38, 31, 56], "sales_q": [18, 20, 15, 15, 16, 15, 11], "ord": [15, 16, 20, 16, 14, 12, 19], "rev": [21750.0, 23200.0, 29000.0, 23200.0, 20300.0, 17400.0, 27550.0], "sales": [26100.0, 29000.0, 21750.0, 21750.0, 23200.0, 21750.0, 15950.0], "spend": [1404.14, 903.24, 1575.8, 758.76, 1068.6, 911.88, 1786.02], "profit_fc": [2719.39, 3505.26, 3959.99, 3679.93, 2815.26, 2405.82, 3490.9], "profit": [5974.79, 7295.67, 4731.79, 4717.62, 5102.24, 4665.81, 2824.46], "stock": 308, "transit": 40, "price": 1159, "spp": 18, "buyout": 88.3, "notes": [{"d": "2026-10-20", "t": "поставка 120 шт, подняли ставку до 380 ₽"}]}, "270000102": {"resp": "Анна", "imp": [4371, 3960, 3672, 4319, 4685, 3070, 3709], "clk": [204, 188, 211, 248, 247, 165, 214], "cart": [29, 29, 31, 37, 31, 24, 30], "sales_q": [3, 7, 11, 11, 6, 5, 13], "ord": [8, 8, 10, 12, 12, 7, 12], "rev": [14640.0, 14640.0, 18300.0, 21960.0, 21960.0, 12810.0, 21960.0], "sales": [5490.0, 12810.0, 20130.0, 20130.0, 10980.0, 9150.0, 23790.0], "spend": [817.63, 641.63, 655.88, 1102.0, 975.75, 447.55, 1404.81], "profit_fc": [2066.69, 2226.58, 2933.41, 3209.98, 3341.07, 2076.23, 2931.34], "profit": [66.48, 2237.11, 4934.29, 4646.28, 2162.86, 2159.64, 5347.83], "stock": 181, "transit": 32, "price": 1462, "spp": 18, "buyout": 89.7, "notes": []}, "270000103": {"resp": "Анна", "imp": [2335, 2371, 2127, 1744, 3881, 3368, 1857], "clk": [131, 115, 141, 121, 191, 166, 128], "cart": [18, 18, 18, 15, 23, 22, 17], "sales_q": [5, 6, 3, 7, 7, 3, 3], "ord": [5, 5, 5, 7, 9, 7, 5], "rev": [12100.0, 12100.0, 12100.0, 16940.0, 21780.0, 16940.0, 12100.0], "sales": [12100.0, 14520.0, 7260.0, 16940.0, 16940.0, 7260.0, 7260.0], "spend": [455.69, 664.91, 592.49, 595.65, 907.56, 798.92, 475.47], "profit_fc": [2050.9, 1818.55, 1896.75, 2913.58, 3619.92, 2750.78, 2039.79], "profit": [3018.37, 3101.76, 1598.43, 4457.56, 4223.52, 1389.46, 1342.85], "stock": 103, "transit": 12, "price": 1938, "spp": 18, "buyout": 87.0, "notes": [{"d": "2026-10-16", "t": "включили Единую ставку 250 ₽"}]}, "270000104": {"resp": "Игорь", "imp": [6454, 5365, 5873, 6303, 5328, 5640, 4542], "clk": [415, 309, 393, 338, 358, 357, 316], "cart": [62, 42, 67, 47, 60, 47, 53], "sales_q": [23, 19, 17, 13, 26, 14, 14], "ord": [19, 18, 19, 16, 16, 23, 17], "rev": [12730.0, 12060.0, 12730.0, 10720.0, 10720.0, 15410.0, 11390.0], "sales": [15410.0, 12730.0, 11390.0, 8710.0, 17420.0, 9380.0, 9380.0], "spend": [586.72, 804.15, 504.37, 596.89, 694.26, 970.75, 602.67], "profit_fc": [2055.43, 1709.87, 2152.2, 1632.93, 1537.99, 2238.11, 1776.84], "profit": [4041.34, 2662.64, 2704.6, 1263.61, 4268.25, 1699.32, 2193.08], "stock": 627, "transit": 40, "price": 535, "spp": 18, "buyout": 92.2, "notes": [{"d": "2026-10-18", "t": "ставка CPC 12 → 14 ₽"}]}, "270000105": {"resp": "Игорь", "imp": [2383, 1819, 4805, 3918, 4594, 1400, 2852], "clk": [145, 113, 240, 221, 257, 85, 133], "cart": [17, 16, 40, 34, 38, 15, 17], "sales_q": [13, 4, 11, 4, 8, 6, 10], "ord": [6, 6, 12, 9, 11, 4, 6], "rev": [5160.0, 5160.0, 10320.0, 7740.0, 9460.0, 3440.0, 5160.0], "sales": [11180.0, 3440.0, 9460.0, 3440.0, 6880.0, 5160.0, 8600.0], "spend": [191.98, 325.56, 668.8, 366.74, 334.13, 175.26, 299.55], "profit_fc": [1053.03, 915.32, 1823.97, 1500.78, 1948.39, 650.16, 941.33], "profit": [3444.98, 392.11, 2511.35, 770.82, 1901.49, 1290.62, 2559.94], "stock": 510, "transit": 150, "price": 688, "spp": 18, "buyout": 90.2, "notes": []}, "270000106": {"resp": "Игорь", "imp": [2106, 2497, 2241, 2424, 1281, 2123, 2724], "clk": [144, 139, 147, 110, 86, 114, 178], "cart": [17, 22, 24, 19, 13, 17, 27], "sales_q": [11, 3, 4, 5, 6, 6, 4], "ord": [6, 7, 6, 4, 4, 6, 7], "rev": [6900.0, 8050.0, 6900.0, 4600.0, 4600.0, 6900.0, 8050.0], "sales": [12650.0, 3450.0, 4600.0, 5750.0, 6900.0, 6900.0, 4600.0], "spend": [329.19, 410.91, 342.93, 267.41, 251.57, 460.78, 309.74], "profit_fc": [1587.27, 1824.96, 1571.47, 1010.23, 1026.07, 1463.91, 1935.74], "profit": [4293.33, 849.04, 1347.38, 1714.95, 2254.07, 2008.4, 1345.51], "stock": 327, "transit": 90, "price": 919, "spp": 18, "buyout": 93.5, "notes": [{"d": "2026-10-20", "t": "отключили автопополнение, ДРР выше 12%"}]}, "270000107": {"resp": "Игорь", "imp": [1416, 1452, 1222, 1722, 2268, 1609, 2090], "clk": [94, 75, 80, 100, 142, 80, 125], "cart": [13, 10, 10, 16, 19, 10, 19], "sales_q": [6, 3, 5, 1, 2, 5, 4], "ord": [4, 3, 3, 4, 6, 3, 5], "rev": [2280.0, 1710.0, 1710.0, 2280.0, 3420.0, 1710.0, 2850.0], "sales": [3420.0, 1710.0, 2850.0, 570.0, 1140.0, 2850.0, 2280.0], "spend": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "profit_fc": [522.69, 392.02, 394.18, 522.11, 779.72, 389.86, 649.04], "profit": [1048.55, 561.8, 906.72, 75.9, 102.65, 926.38, 746.95], "stock": 654, "transit": 150, "price": 454, "spp": 18, "buyout": 90.2, "notes": []}, "270000108": {"resp": "Игорь", "imp": [4640, 2397, 2946, 2586, 2257, 3646, 2608], "clk": [209, 141, 172, 118, 148, 217, 168], "cart": [37, 17, 22, 15, 22, 34, 27], "sales_q": [6, 6, 6, 8, 6, 5, 10], "ord": [8, 6, 8, 5, 6, 9, 9], "rev": [3040.0, 2280.0, 3040.0, 1900.0, 2280.0, 3420.0, 3420.0], "sales": [2280.0, 2280.0, 2280.0, 3040.0, 2280.0, 1900.0, 3800.0], "spend": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "profit_fc": [576.0, 433.89, 574.74, 358.42, 431.52, 646.58, 647.29], "profit": [624.73, 393.64, 364.16, 584.65, 655.38, 570.82, 1089.31], "stock": 1031, "transit": 240, "price": 304, "spp": 18, "buyout": 91.3, "notes": []}, "270000109": {"resp": "Анна", "imp": [2678, 1268, 3168, 5283, 1472, 2452, 1852], "clk": [163, 85, 215, 296, 103, 139, 121], "cart": [27, 11, 33, 37, 14, 20, 18], "sales_q": [7, 5, 7, 6, 5, 8, 11], "ord": [7, 3, 9, 12, 5, 8, 6], "rev": [6720.0, 2880.0, 8640.0, 11520.0, 4800.0, 7680.0, 5760.0], "sales": [6720.0, 4800.0, 6720.0, 5760.0, 4800.0, 7680.0, 10560.0], "spend": [347.74, 191.6, 440.7, 611.78, 173.12, 376.16, 328.98], "profit_fc": [1464.52, 584.25, 1894.36, 2501.64, 1124.14, 1692.76, 1231.07], "profit": [1906.3, 1516.91, 1955.78, 1391.89, 1563.89, 1856.72, 3365.97], "stock": 522, "transit": 160, "price": 768, "spp": 18, "buyout": 93.3, "notes": [{"d": "2026-10-17", "t": "сузили ручную РК до 6 фраз"}]}, "270000110": {"resp": "Анна", "imp": [915, 1081, 2298, 1130, 1807, 2555, 1551], "clk": [47, 74, 106, 55, 92, 121, 101], "cart": [7, 13, 18, 9, 15, 15, 17], "sales_q": [7, 2, 4, 2, 2, 3, 2], "ord": [2, 2, 4, 2, 4, 4, 4], "rev": [7160.0, 7160.0, 14320.0, 7160.0, 14320.0, 14320.0, 14320.0], "sales": [25060.0, 7160.0, 14320.0, 7160.0, 7160.0, 10740.0, 7160.0], "spend": [459.68, 343.02, 699.41, 296.91, 664.49, 585.34, 883.15], "profit_fc": [1211.29, 1326.14, 2646.14, 1384.92, 2702.79, 2756.59, 2476.88], "profit": [7428.17, 1917.41, 3796.47, 1970.6, 1582.18, 2621.24, 1383.21], "stock": 81, "transit": 30, "price": 2853, "spp": 18, "buyout": 92.8, "notes": [{"d": "2026-10-19", "t": "новая обложка 3:4"}, {"d": "2026-10-21", "t": "снизили цену на 150 ₽"}]}, "270000111": {"resp": "Анна", "imp": [659, 1343, 3237, 3191, 1661, 2921, 2913], "clk": [46, 78, 181, 197, 80, 166, 151], "cart": [5, 10, 27, 32, 12, 28, 21], "sales_q": [4, 4, 3, 4, 3, 7, 8], "ord": [2, 3, 8, 8, 4, 7, 7], "rev": [2500.0, 3750.0, 10000.0, 10000.0, 5000.0, 8750.0, 8750.0], "sales": [5000.0, 5000.0, 3750.0, 5000.0, 3750.0, 8750.0, 10000.0], "spend": [130.81, 271.18, 578.7, 547.42, 288.38, 338.92, 310.29], "profit_fc": [465.79, 627.62, 1815.5, 1872.74, 915.21, 1760.55, 1802.81], "profit": [1361.07, 1342.73, 641.54, 1137.65, 791.97, 2386.31, 2933.11], "stock": 246, "transit": 100, "price": 1001, "spp": 18, "buyout": 93.0, "notes": []}}, "label": "16.10–22.10.2026"}, "2026-10-09": {"managers": ["Анна", "Игорь"], "cabinet": "Северный дом", "days": ["2026-10-09", "2026-10-10", "2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"], "has_assoc": true, "rnp_bad": [], "articles": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303737, "name": "Клики 270000101 плед графит", "type": "ОЗК (CPC)", "daily": {"imp": [3024, 3577, 4444, 3099, 5089, 2043, 3311], "clk": [87, 107, 101, 85, 157, 53, 77], "cart": [9, 14, 13, 10, 14, 7, 9], "ord": [13, 10, 14, 12, 14, 12, 11], "rev": [18850, 14500, 20300, 17400, 20300, 17400, 15950], "spend": [1376, 1133, 1157, 1003, 2338, 798, 789], "dord": [9, 7, 10, 9, 10, 9, 8], "drev": [13050, 10150, 14500, 13050, 14500, 13050, 11600]}, "assoc": [{"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "cart": 5, "ord": 3, "rev": 5349}, {"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "cart": 5, "ord": 3, "rev": 7092}]}], "mgr": ["Анна"]}, {"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303774, "name": "Единая 270000102 плед 200", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [2288, 2141, 2179, 2601, 2357, 1793, 2233], "clk": [64, 53, 56, 62, 77, 47, 68], "cart": [7, 4, 5, 5, 8, 5, 8], "ord": [6, 6, 6, 3, 7, 8, 6], "rev": [10980, 10980, 10980, 5490, 12810, 14640, 10980], "spend": [969, 828, 827, 662, 768, 743, 1068], "dord": [4, 4, 4, 2, 5, 6, 4], "drev": [7320, 7320, 7320, 3660, 9150, 10980, 7320]}, "assoc": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "cart": 4, "ord": 4, "rev": 5652}, {"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "cart": 4, "ord": 1, "rev": 2364}]}], "mgr": ["Анна"]}, {"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303959, "name": "Единая 270000103 плед вязаный", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [1287, 1541, 2439, 3203, 1417, 4966, 1527], "clk": [39, 47, 86, 101, 35, 118, 40], "cart": [3, 4, 11, 10, 3, 13, 3], "ord": [3, 3, 5, 5, 3, 6, 4], "rev": [7260, 7260, 12100, 12100, 7260, 14520, 9680], "spend": [474, 494, 1010, 958, 500, 1100, 487], "dord": [2, 2, 4, 4, 2, 4, 3], "drev": [4840, 4840, 9680, 9680, 4840, 9680, 7260]}, "assoc": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "cart": 3, "ord": 2, "rev": 2826}, {"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "cart": 4, "ord": 3, "rev": 5349}]}], "mgr": ["Анна"]}, {"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "brand": "Северный дом", "campaigns": [{"id": 303811, "name": "Клики 270000104 вафельные полотенца", "type": "ОЗК (CPC)", "daily": {"imp": [1464, 738, 2072, 1312, 2262, 1773, 1734], "clk": [41, 18, 61, 35, 57, 43, 58], "cart": [5, 2, 8, 2, 5, 3, 4], "ord": [9, 8, 14, 13, 12, 8, 14], "rev": [6030, 5360, 9380, 8710, 8040, 5360, 9380], "spend": [529, 281, 766, 567, 772, 542, 920], "dord": [6, 6, 10, 9, 9, 6, 10], "drev": [4020, 4020, 6700, 6030, 6030, 4020, 6700]}, "assoc": [{"nm": 270000105, "vendor": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "subject": "Полотенца", "cart": 6, "ord": 4, "rev": 3356}]}], "mgr": ["Игорь"]}, {"nm": 270000105, "vendor": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "subject": "Полотенца", "brand": "Северный дом", "campaigns": [{"id": 303848, "name": "Единая 270000105 махровое", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [1766, 863, 1319, 935, 1108, 1876, 855], "clk": [43, 30, 36, 27, 26, 44, 22], "cart": [5, 3, 3, 2, 2, 6, 2], "ord": [7, 7, 7, 8, 4, 6, 4], "rev": [6020, 6020, 6020, 6880, 3440, 5160, 3440], "spend": [455, 478, 345, 411, 391, 568, 320], "dord": [5, 5, 5, 6, 3, 4, 3], "drev": [4300, 4300, 4300, 5160, 2580, 3440, 2580]}, "assoc": [{"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "cart": 5, "ord": 3, "rev": 1956}]}], "mgr": ["Игорь"]}, {"nm": 270000106, "vendor": "NHW-TBL-140", "name": "Скатерть водоотталкивающая 140×180", "subject": "Скатерти", "brand": "Северный дом", "campaigns": [{"id": 303996, "name": "Ручная 270000106 - скатерть", "type": "ОЗП (CPM, Ручная)", "daily": {"imp": [887, 1188, 1068, 1411, 790, 769, 1090], "clk": [21, 27, 34, 33, 20, 22, 26], "cart": [1, 2, 4, 3, 1, 2, 3], "ord": [3, 4, 3, 4, 3, 4, 3], "rev": [3450, 4600, 3450, 4600, 3450, 4600, 3450], "spend": [292, 401, 344, 429, 245, 271, 370], "dord": [2, 3, 2, 3, 2, 3, 2], "drev": [2300, 3450, 2300, 3450, 2300, 3450, 2300]}, "assoc": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "cart": 5, "ord": 1, "rev": 1413}, {"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "cart": 4, "ord": 4, "rev": 7132}]}], "mgr": ["Игорь"]}, {"nm": 270000107, "vendor": "NHW-APR-01", "name": "Фартук кухонный с карманом, лён", "subject": "Фартуки", "brand": "Северный дом", "campaigns": [], "mgr": ["Игорь"]}, {"nm": 270000108, "vendor": "NHW-MIT-2", "name": "Прихватки-варежки, 2 шт", "subject": "Прихватки", "brand": "Северный дом", "campaigns": [], "mgr": ["Игорь"]}, {"nm": 270000109, "vendor": "NHW-PIL-50", "name": "Наволочки сатин 50×70, 2 шт", "subject": "Наволочки", "brand": "Северный дом", "campaigns": [{"id": 303885, "name": "Ручная 270000109 - наволочки сатин", "type": "ОЗП (CPM, Ручная)", "daily": {"imp": [702, 1392, 1002, 1334, 1849, 1059, 730], "clk": [19, 33, 29, 43, 55, 30, 17], "cart": [1, 3, 2, 5, 4, 3, 1], "ord": [4, 4, 3, 6, 6, 4, 3], "rev": [3840, 3840, 2880, 5760, 5760, 3840, 2880], "spend": [227, 443, 362, 467, 507, 308, 222], "dord": [3, 3, 2, 4, 4, 3, 2], "drev": [2880, 2880, 1920, 3840, 3840, 2880, 1920]}, "assoc": [{"nm": 270000107, "vendor": "NHW-APR-01", "name": "Фартук кухонный с карманом, лён", "subject": "Фартуки", "cart": 4, "ord": 2, "rev": 1108}]}], "mgr": ["Анна"]}, {"nm": 270000110, "vendor": "NHW-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин", "subject": "Постельное белье", "brand": "Северный дом", "campaigns": [{"id": 303922, "name": "Клики 270000110 кпб сатин", "type": "ОЗК (CPC)", "daily": {"imp": [1003, 1391, 1728, 1975, 1832, 3412, 654], "clk": [26, 33, 40, 47, 43, 84, 20], "cart": [3, 4, 3, 3, 5, 7, 2], "ord": [2, 2, 1, 3, 2, 3, 1], "rev": [7160, 7160, 3580, 10740, 7160, 10740, 3580], "spend": [390, 360, 383, 696, 429, 1136, 292], "dord": [1, 1, 1, 2, 1, 2, 1], "drev": [3580, 3580, 3580, 7160, 3580, 7160, 3580]}, "assoc": [{"nm": 270000108, "vendor": "NHW-MIT-2", "name": "Прихватки-варежки, 2 шт", "subject": "Прихватки", "cart": 2, "ord": 3, "rev": 1110}, {"nm": 270000106, "vendor": "NHW-TBL-140", "name": "Скатерть водоотталкивающая 140×180", "subject": "Скатерти", "cart": 2, "ord": 3, "rev": 3363}]}], "mgr": ["Анна"]}, {"nm": 270000111, "vendor": "NHW-SHT-160", "name": "Простыня на резинке 160×200, сатин", "subject": "Простыни", "brand": "Северный дом", "campaigns": [{"id": 304033, "name": "Клики 270000111 простыня", "type": "ОЗК (CPC)", "daily": {"imp": [1013, 853, 858, 731, 555, 623, 654], "clk": [31, 23, 23, 23, 18, 15, 19], "cart": [3, 2, 2, 2, 1, 1, 2], "ord": [4, 3, 3, 3, 4, 2, 3], "rev": [5000, 3750, 3750, 3750, 5000, 2500, 3750], "spend": [349, 313, 236, 266, 301, 241, 287], "dord": [3, 2, 2, 2, 3, 1, 2], "drev": [3750, 2500, 2500, 2500, 3750, 1250, 2500]}, "assoc": [{"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "cart": 1, "ord": 2, "rev": 4728}, {"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "cart": 3, "ord": 3, "rev": 4239}]}], "mgr": ["Анна"]}], "rnp": {"270000101": {"resp": "Анна", "imp": [7046, 5615, 9005, 8800, 8294, 5980, 4546], "clk": [344, 308, 428, 433, 547, 359, 305], "cart": [46, 41, 53, 58, 92, 43, 43], "sales_q": [15, 12, 12, 10, 18, 24, 19], "ord": [18, 15, 25, 19, 25, 17, 16], "rev": [26100.0, 21750.0, 36250.0, 27550.0, 36250.0, 24650.0, 23200.0], "sales": [21445.5, 17400.0, 17400.0, 14500.0, 26100.0, 34800.0, 27550.0], "spend": [1376.0, 1132.98, 1156.94, 1003.21, 2337.94, 797.97, 788.98], "profit_fc": [3594.88, 2999.99, 5715.61, 4207.98, 4526.75, 3875.37, 3609.45], "profit": [4702.44, 3604.65, 2943.5, 2090.24, 4682.8, 8977.68, 6386.1], "stock": 384, "transit": 40, "price": 1159, "spp": 18, "buyout": 87.4, "notes": [{"d": "2026-10-14", "t": "старт осенней акции, цена −7%"}]}, "270000102": {"resp": "Анна", "imp": [3447, 2477, 2634, 2798, 3313, 3735, 3558], "clk": [203, 173, 154, 162, 211, 231, 205], "cart": [32, 25, 26, 25, 37, 41, 36], "sales_q": [9, 9, 6, 8, 5, 7, 12], "ord": [10, 8, 9, 6, 10, 11, 9], "rev": [18300.0, 14640.0, 16470.0, 10980.0, 18300.0, 20130.0, 16470.0], "sales": [16085.7, 16470.0, 10980.0, 14640.0, 9150.0, 12810.0, 21960.0], "spend": [968.89, 828.44, 826.55, 662.41, 768.09, 742.93, 1068.22], "profit_fc": [2628.46, 2049.44, 2421.94, 1508.08, 2849.4, 3249.6, 2212.9], "profit": [2485.64, 3887.77, 2088.36, 3511.86, 1354.89, 2916.8, 5005.37], "stock": 222, "transit": 64, "price": 1462, "spp": 18, "buyout": 90.5, "notes": []}, "270000103": {"resp": "Анна", "imp": [2584, 2319, 2192, 2671, 2573, 2205, 2265], "clk": [142, 114, 149, 169, 124, 152, 107], "cart": [20, 18, 25, 23, 22, 21, 16], "sales_q": [7, 4, 6, 5, 3, 5, 7], "ord": [5, 5, 7, 8, 5, 9, 5], "rev": [12100.0, 12100.0, 16940.0, 19360.0, 12100.0, 21780.0, 12100.0], "sales": [16601.2, 9680.0, 14520.0, 12100.0, 7260.0, 12100.0, 16940.0], "spend": [473.66, 494.28, 1010.39, 958.12, 499.52, 1100.3, 486.79], "profit_fc": [2084.97, 2047.0, 2523.12, 3075.56, 2021.53, 3401.16, 2028.47], "profit": [4397.11, 2282.82, 3099.68, 2665.39, 1690.96, 2185.87, 4620.84], "stock": 125, "transit": 36, "price": 1938, "spp": 18, "buyout": 87.0, "notes": []}, "270000104": {"resp": "Игорь", "imp": [4397, 6021, 7812, 6039, 5948, 3589, 6294], "clk": [246, 274, 378, 354, 393, 241, 368], "cart": [43, 44, 57, 58, 58, 38, 44], "sales_q": [15, 11, 15, 13, 13, 16, 18], "ord": [16, 13, 20, 17, 20, 14, 22], "rev": [10720.0, 8710.0, 13400.0, 11390.0, 13400.0, 9380.0, 14740.0], "sales": [9862.4, 7370.0, 10050.0, 8710.0, 8710.0, 10720.0, 12060.0], "spend": [528.84, 281.11, 766.19, 567.25, 772.07, 541.88, 920.16], "profit_fc": [1686.41, 1514.83, 1999.84, 1783.87, 1996.99, 1400.71, 2129.15], "profit": [2127.7, 1599.47, 1515.38, 1411.87, 1771.94, 2631.23, 2425.82], "stock": 588, "transit": 0, "price": 535, "spp": 18, "buyout": 91.3, "notes": []}, "270000105": {"resp": "Игорь", "imp": [3442, 4389, 2683, 5629, 4074, 4490, 2488], "clk": [190, 297, 175, 273, 207, 258, 130], "cart": [31, 46, 30, 33, 35, 43, 18], "sales_q": [5, 6, 12, 10, 10, 12, 10], "ord": [9, 13, 10, 12, 8, 10, 6], "rev": [7740.0, 11180.0, 8600.0, 10320.0, 6880.0, 8600.0, 5160.0], "sales": [4300.0, 5160.0, 10320.0, 8600.0, 8600.0, 10320.0, 8600.0], "spend": [455.3, 478.39, 345.17, 411.29, 390.7, 568.18, 319.88], "profit_fc": [1391.58, 2180.39, 1704.63, 2048.47, 1250.97, 1495.37, 923.76], "profit": [462.7, 1105.27, 3213.37, 2456.41, 2364.27, 2891.62, 2590.39], "stock": 576, "transit": 120, "price": 688, "spp": 18, "buyout": 90.4, "notes": []}, "270000106": {"resp": "Игорь", "imp": [1811, 2144, 1629, 2516, 1659, 3453, 1814], "clk": [123, 108, 96, 158, 102, 158, 99], "cart": [19, 17, 14, 20, 17, 26, 14], "sales_q": [3, 2, 5, 3, 6, 2, 5], "ord": [5, 6, 5, 6, 5, 6, 5], "rev": [5750.0, 6900.0, 5750.0, 6900.0, 5750.0, 6900.0, 5750.0], "sales": [3289.0, 2300.0, 5750.0, 3450.0, 6900.0, 2300.0, 5750.0], "spend": [292.45, 401.2, 343.59, 428.61, 244.76, 270.7, 370.04], "profit_fc": [1318.32, 1521.44, 1258.61, 1485.79, 1350.57, 1643.7, 1225.29], "profit": [818.5, -98.06, 1777.02, 711.17, 1999.23, 565.71, 1714.66], "stock": 364, "transit": 60, "price": 919, "spp": 18, "buyout": 93.0, "notes": []}, "270000107": {"resp": "Игорь", "imp": [1336, 2767, 1754, 2216, 1616, 2100, 1714], "clk": [72, 139, 109, 129, 100, 100, 92], "cart": [10, 20, 14, 17, 12, 16, 11], "sales_q": [2, 6, 3, 4, 3, 3, 4], "ord": [3, 5, 5, 5, 4, 4, 4], "rev": [1710.0, 2850.0, 2850.0, 2850.0, 2280.0, 2280.0, 2280.0], "sales": [1060.2, 3420.0, 1710.0, 2280.0, 1710.0, 1710.0, 2280.0], "spend": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "profit_fc": [397.2, 666.31, 663.44, 659.84, 524.42, 523.84, 524.42], "profit": [337.64, 1153.69, 477.28, 625.29, 423.04, 562.02, 586.06], "stock": 682, "transit": 150, "price": 454, "spp": 18, "buyout": 91.1, "notes": []}, "270000108": {"resp": "Игорь", "imp": [2239, 2539, 2409, 3940, 3265, 1558, 3238], "clk": [129, 162, 115, 182, 190, 101, 173], "cart": [18, 24, 15, 25, 26, 12, 21], "sales_q": [6, 7, 5, 8, 3, 5, 13], "ord": [6, 9, 6, 8, 10, 5, 8], "rev": [2280.0, 3420.0, 2280.0, 3040.0, 3800.0, 1900.0, 3040.0], "sales": [2253.4, 2660.0, 1900.0, 3040.0, 1140.0, 1900.0, 4940.0], "spend": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "profit_fc": [432.94, 648.0, 432.94, 577.89, 724.72, 361.18, 576.63], "profit": [613.12, 589.13, 283.98, 900.47, 326.64, 366.47, 1055.76], "stock": 711, "transit": 120, "price": 304, "spp": 18, "buyout": 91.5, "notes": []}, "270000109": {"resp": "Анна", "imp": [2245, 3460, 2406, 4057, 4233, 2374, 2309], "clk": [136, 195, 152, 196, 205, 120, 106], "cart": [22, 26, 20, 24, 28, 19, 13], "sales_q": [4, 8, 7, 4, 10, 9, 4], "ord": [6, 8, 6, 9, 10, 6, 5], "rev": [5760.0, 7680.0, 5760.0, 8640.0, 9600.0, 5760.0, 4800.0], "sales": [3705.6, 7680.0, 6720.0, 3840.0, 9600.0, 8640.0, 3840.0], "spend": [227.0, 443.4, 361.59, 466.95, 506.78, 307.98, 221.95], "profit_fc": [1319.68, 1621.06, 1190.1, 1853.06, 2073.8, 1240.37, 1075.31], "profit": [899.82, 2301.95, 2054.8, 765.88, 2944.71, 2281.49, 1143.22], "stock": 569, "transit": 80, "price": 768, "spp": 18, "buyout": 93.1, "notes": []}, "270000110": {"resp": "Анна", "imp": [1369, 1774, 1300, 1810, 1295, 1983, 1394], "clk": [72, 84, 76, 105, 82, 94, 63], "cart": [9, 10, 13, 18, 12, 16, 8], "sales_q": [4, 5, 3, 3, 3, 3, 1], "ord": [3, 3, 2, 4, 3, 5, 2], "rev": [10740.0, 10740.0, 7160.0, 14320.0, 10740.0, 17900.0, 7160.0], "sales": [13818.8, 17900.0, 10740.0, 10740.0, 10740.0, 10740.0, 3580.0], "spend": [389.92, 359.82, 382.83, 696.27, 429.31, 1135.53, 291.59], "profit_fc": [2056.79, 2119.47, 1271.84, 2616.7, 2058.13, 3010.2, 1375.75], "profit": [3732.42, 5301.9, 3006.62, 2706.07, 2982.11, 2238.15, 828.51], "stock": 93, "transit": 30, "price": 2853, "spp": 18, "buyout": 92.1, "notes": []}, "270000111": {"resp": "Анна", "imp": [2536, 1765, 1703, 2206, 2328, 1972, 3082], "clk": [151, 116, 86, 122, 153, 92, 139], "cart": [25, 17, 12, 15, 25, 16, 24], "sales_q": [4, 7, 6, 3, 5, 4, 6], "ord": [7, 5, 4, 5, 6, 4, 6], "rev": [8750.0, 6250.0, 5000.0, 6250.0, 7500.0, 5000.0, 7500.0], "sales": [4912.5, 8750.0, 7500.0, 3750.0, 6250.0, 5000.0, 7500.0], "spend": [348.57, 313.22, 236.35, 265.88, 300.6, 241.19, 287.06], "profit_fc": [1764.53, 1191.27, 972.43, 1245.1, 1495.05, 962.4, 1512.48], "profit": [1105.04, 2427.86, 2203.43, 962.25, 1430.02, 1406.0, 2019.51], "stock": 276, "transit": 50, "price": 1001, "spp": 18, "buyout": 92.4, "notes": []}}, "label": "09.10–15.10.2026"}, "2026-10-02": {"managers": ["Анна", "Игорь"], "cabinet": "Северный дом", "days": ["2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"], "has_assoc": true, "rnp_bad": [], "articles": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303737, "name": "Клики 270000101 плед графит", "type": "ОЗК (CPC)", "daily": {"imp": [2649, 1385, 4283, 3026, 8216, 2878, 1548], "clk": [72, 44, 120, 70, 195, 86, 46], "cart": [8, 4, 15, 5, 21, 7, 5], "ord": [10, 8, 10, 8, 13, 9, 7], "rev": [13485, 10788, 13485, 10788, 18850, 13050, 10150], "spend": [1132, 482, 1085, 740, 2002, 1103, 576], "dord": [7, 6, 7, 6, 9, 6, 5], "drev": [9440, 8091, 9440, 8091, 13050, 8700, 7250]}, "assoc": [{"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "cart": 1, "ord": 3, "rev": 7092}]}], "mgr": ["Анна"]}, {"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303774, "name": "Единая 270000102 плед 200", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [3941, 2280, 1829, 3223, 2363, 1536, 1706], "clk": [92, 56, 55, 96, 58, 39, 50], "cart": [8, 7, 7, 9, 7, 3, 5], "ord": [5, 5, 5, 9, 8, 6, 4], "rev": [8509, 8509, 8509, 15317, 14640, 10980, 7320], "spend": [865, 687, 584, 1030, 679, 541, 456], "dord": [4, 4, 4, 6, 6, 4, 3], "drev": [6808, 6807, 6808, 10212, 10980, 7320, 5490]}, "assoc": [{"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "cart": 6, "ord": 2, "rev": 4728}]}], "mgr": ["Анна"]}, {"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303959, "name": "Единая 270000103 плед вязаный", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [1058, 1546, 903, 1160, 1986, 3553, 2181], "clk": [27, 42, 31, 35, 58, 88, 49], "cart": [3, 4, 3, 3, 7, 8, 4], "ord": [2, 4, 2, 2, 3, 6, 3], "rev": [4501, 9003, 4501, 4501, 7260, 14520, 7260], "spend": [390, 574, 430, 535, 695, 1292, 656], "dord": [1, 3, 1, 1, 2, 4, 2], "drev": [2250, 6752, 2250, 2250, 4840, 9680, 4840]}, "assoc": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "cart": 4, "ord": 1, "rev": 1413}, {"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "cart": 6, "ord": 2, "rev": 3566}]}], "mgr": ["Анна"]}, {"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "brand": "Северный дом", "campaigns": [{"id": 303811, "name": "Клики 270000104 вафельные полотенца", "type": "ОЗК (CPC)", "daily": {"imp": [1446, 1955, 2461, 3624, 1330, 2626, 1968], "clk": [35, 51, 65, 82, 31, 68, 47], "cart": [3, 5, 6, 9, 3, 6, 4], "ord": [11, 9, 13, 14, 9, 10, 11], "rev": [6854, 5608, 8100, 8724, 6030, 6700, 7370], "spend": [413, 570, 653, 816, 491, 704, 552], "dord": [8, 6, 9, 10, 6, 7, 8], "drev": [4985, 3738, 5608, 6231, 4020, 4690, 5360]}, "assoc": [{"nm": 270000105, "vendor": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "subject": "Полотенца", "cart": 4, "ord": 4, "rev": 3356}]}], "mgr": ["Игорь"]}, {"nm": 270000105, "vendor": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "subject": "Полотенца", "brand": "Северный дом", "campaigns": [{"id": 303848, "name": "Единая 270000105 махровое", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [1257, 1006, 1068, 410, 837, 1316, 988], "clk": [28, 33, 24, 13, 20, 33, 29], "cart": [3, 2, 2, 1, 2, 3, 3], "ord": [5, 5, 7, 4, 6, 5, 7], "rev": [3999, 3999, 5599, 3199, 5160, 4300, 6020], "spend": [424, 342, 319, 217, 287, 348, 464], "dord": [4, 4, 5, 3, 4, 4, 5], "drev": [3199, 3199, 3999, 2399, 3440, 3440, 4300]}, "assoc": [{"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "cart": 2, "ord": 4, "rev": 2608}]}], "mgr": ["Игорь"]}, {"nm": 270000106, "vendor": "NHW-TBL-140", "name": "Скатерть водоотталкивающая 140×180", "subject": "Скатерти", "brand": "Северный дом", "campaigns": [{"id": 303996, "name": "Ручная 270000106 - скатерть", "type": "ОЗП (CPM, Ручная)", "daily": {"imp": [743, 239, 898, 1011, 1042, 819, 505], "clk": [18, 7, 27, 29, 29, 20, 15], "cart": [2, 0, 2, 3, 2, 2, 1], "ord": [3, 1, 3, 4, 3, 3, 2], "rev": [3209, 1070, 3208, 4278, 3450, 3450, 2300], "spend": [259, 110, 414, 291, 347, 215, 163], "dord": [2, 1, 2, 3, 2, 2, 1], "drev": [2139, 1070, 2139, 3209, 2300, 2300, 1150]}, "assoc": [{"nm": 270000107, "vendor": "NHW-APR-01", "name": "Фартук кухонный с карманом, лён", "subject": "Фартуки", "cart": 6, "ord": 3, "rev": 1662}]}], "mgr": ["Игорь"]}, {"nm": 270000107, "vendor": "NHW-APR-01", "name": "Фартук кухонный с карманом, лён", "subject": "Фартуки", "brand": "Северный дом", "campaigns": [], "mgr": ["Игорь"]}, {"nm": 270000108, "vendor": "NHW-MIT-2", "name": "Прихватки-варежки, 2 шт", "subject": "Прихватки", "brand": "Северный дом", "campaigns": [], "mgr": ["Игорь"]}, {"nm": 270000109, "vendor": "NHW-PIL-50", "name": "Наволочки сатин 50×70, 2 шт", "subject": "Наволочки", "brand": "Северный дом", "campaigns": [{"id": 303885, "name": "Ручная 270000109 - наволочки сатин", "type": "ОЗП (CPM, Ручная)", "daily": {"imp": [637, 314, 962, 788, 1687, 1050, 1481], "clk": [18, 7, 24, 20, 43, 29, 33], "cart": [1, 0, 2, 2, 3, 3, 3], "ord": [4, 1, 4, 6, 6, 4, 4], "rev": [3571, 893, 3571, 5356, 5760, 3840, 3840], "spend": [209, 106, 345, 251, 623, 377, 353], "dord": [3, 1, 3, 4, 4, 3, 3], "drev": [2678, 893, 2678, 3571, 3840, 2880, 2880]}, "assoc": [{"nm": 270000110, "vendor": "NHW-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин", "subject": "Постельное белье", "cart": 2, "ord": 2, "rev": 6958}]}], "mgr": ["Анна"]}, {"nm": 270000110, "vendor": "NHW-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин", "subject": "Постельное белье", "brand": "Северный дом", "campaigns": [{"id": 303922, "name": "Клики 270000110 кпб сатин", "type": "ОЗК (CPC)", "daily": {"imp": [1062, 1938, 3708, 1177, 2960, 3812, 994], "clk": [26, 58, 93, 41, 89, 86, 27], "cart": [3, 7, 11, 3, 7, 9, 3], "ord": [1, 2, 2, 2, 3, 3, 2], "rev": [3330, 6659, 6659, 6659, 10740, 10740, 7160], "spend": [356, 540, 863, 588, 923, 883, 376], "dord": [1, 1, 1, 1, 2, 2, 1], "drev": [3330, 3329, 3330, 3330, 7160, 7160, 3580]}, "assoc": [{"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "cart": 5, "ord": 4, "rev": 2608}]}], "mgr": ["Анна"]}, {"nm": 270000111, "vendor": "NHW-SHT-160", "name": "Простыня на резинке 160×200, сатин", "subject": "Простыни", "brand": "Северный дом", "campaigns": [{"id": 304033, "name": "Клики 270000111 простыня", "type": "ОЗК (CPC)", "daily": {"imp": [889, 468, 754, 481, 1061, 917, 636], "clk": [31, 14, 20, 11, 37, 30, 19], "cart": [3, 1, 2, 1, 4, 3, 1], "ord": [3, 3, 3, 2, 5, 4, 3], "rev": [3487, 3488, 3488, 2325, 6250, 5000, 3750], "spend": [327, 209, 312, 160, 578, 316, 285], "dord": [2, 2, 2, 1, 4, 3, 2], "drev": [2325, 2325, 2325, 1163, 5000, 3750, 2500]}, "assoc": [{"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "cart": 3, "ord": 4, "rev": 2608}, {"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "cart": 2, "ord": 2, "rev": 3566}]}], "mgr": ["Анна"]}], "rnp": {"270000101": {"resp": "Анна", "imp": [5329, 3259, 7259, 5630, 6188, 4785, 3628], "clk": [310, 228, 369, 325, 377, 299, 195], "cart": [41, 33, 62, 47, 53, 53, 31], "sales_q": [21, 16, 12, 13, 15, 10, 23], "ord": [16, 11, 19, 15, 22, 13, 11], "rev": [21576.0, 14834.0, 25622.0, 20228.0, 31900.0, 18850.0, 15950.0], "sales": [28318.5, 21576.0, 16182.0, 17530.5, 20227.5, 13485.0, 31726.0], "spend": [1131.83, 481.64, 1085.3, 740.05, 2001.79, 1102.77, 576.42], "profit_fc": [2392.47, 1938.77, 3085.55, 2568.06, 4018.38, 2454.6, 2444.04], "profit": [5884.87, 4546.11, 2326.75, 3219.66, 3081.63, 1759.89, 7414.77], "stock": 317, "transit": 100, "price": 1159, "spp": 18, "buyout": 87.3, "notes": []}, "270000102": {"resp": "Анна", "imp": [2886, 2505, 3204, 3958, 3629, 3314, 2169], "clk": [183, 165, 149, 236, 179, 190, 124], "cart": [24, 22, 18, 35, 31, 27, 16], "sales_q": [5, 14, 7, 8, 7, 9, 9], "ord": [8, 7, 8, 12, 11, 9, 6], "rev": [13615.0, 11913.0, 13615.0, 20423.0, 20130.0, 16470.0, 10980.0], "sales": [8509.5, 23826.6, 11913.3, 13615.2, 11913.3, 15317.1, 15701.4], "spend": [864.89, 687.38, 584.06, 1029.88, 679.37, 541.46, 455.83], "profit_fc": [1460.15, 1351.51, 1761.74, 2477.42, 3308.73, 2736.03, 1719.5], "profit": [1099.3, 5306.82, 2356.42, 2027.49, 2193.32, 3298.45, 2411.64], "stock": 263, "transit": 64, "price": 1462, "spp": 18, "buyout": 90.0, "notes": []}, "270000103": {"resp": "Анна", "imp": [1374, 2290, 2046, 1394, 1700, 2390, 2024], "clk": [90, 120, 108, 83, 111, 164, 99], "cart": [11, 19, 13, 10, 18, 21, 13], "sales_q": [4, 5, 5, 4, 8, 2, 3], "ord": [4, 6, 4, 4, 5, 8, 4], "rev": [9002.0, 13504.0, 9002.0, 9002.0, 12100.0, 19360.0, 9680.0], "sales": [9002.4, 11253.0, 11253.0, 9002.4, 18004.8, 4501.2, 6921.2], "spend": [389.5, 573.53, 429.51, 534.97, 695.22, 1291.95, 655.8], "profit_fc": [1264.39, 1905.03, 1218.73, 1117.04, 1831.61, 2764.85, 1372.6], "profit": [1905.98, 2423.04, 2452.71, 1862.27, 3986.71, -911.41, 1296.14], "stock": 148, "transit": 36, "price": 1938, "spp": 18, "buyout": 87.7, "notes": []}, "270000104": {"resp": "Игорь", "imp": [5053, 5237, 6427, 8688, 4774, 5287, 4627], "clk": [279, 304, 406, 548, 321, 287, 311], "cart": [37, 47, 60, 91, 56, 44, 43], "sales_q": [14, 19, 21, 7, 13, 19, 22], "ord": [16, 14, 18, 25, 14, 16, 19], "rev": [9970.0, 8723.0, 11216.0, 15578.0, 9380.0, 10720.0, 12730.0], "sales": [8723.4, 11838.9, 13085.1, 4361.7, 8100.3, 11838.9, 14036.5], "spend": [412.94, 570.22, 652.69, 816.15, 491.05, 703.94, 552.12], "profit_fc": [1420.74, 1037.4, 1416.87, 2055.21, 1449.42, 1511.31, 2081.37], "profit": [1558.07, 2395.22, 2701.18, 15.66, 1311.31, 2066.96, 3010.05], "stock": 711, "transit": 120, "price": 535, "spp": 18, "buyout": 91.3, "notes": []}, "270000105": {"resp": "Игорь", "imp": [2686, 3319, 3064, 2357, 2991, 3070, 5379], "clk": [148, 191, 192, 123, 200, 169, 294], "cart": [20, 25, 26, 18, 33, 28, 48], "sales_q": [12, 10, 3, 8, 7, 8, 9], "ord": [8, 8, 10, 6, 9, 9, 14], "rev": [6398.0, 6398.0, 7998.0, 4799.0, 7740.0, 7740.0, 12040.0], "sales": [9597.6, 7998.0, 2399.4, 6398.4, 5598.6, 6398.4, 7378.8], "spend": [424.09, 341.73, 318.87, 217.02, 287.4, 348.4, 463.93], "profit_fc": [981.12, 1074.36, 1439.85, 837.15, 1573.93, 1512.93, 2425.05], "profit": [2443.64, 2112.95, -626.82, 1634.97, 1293.43, 1583.07, 1312.67], "stock": 528, "transit": 120, "price": 688, "spp": 18, "buyout": 90.0, "notes": []}, "270000106": {"resp": "Игорь", "imp": [1885, 1297, 1872, 1678, 1452, 2079, 1213], "clk": [125, 59, 113, 104, 95, 102, 73], "cart": [19, 7, 16, 18, 12, 16, 12], "sales_q": [4, 5, 10, 4, 1, 6, 7], "ord": [5, 2, 6, 5, 5, 4, 3], "rev": [5348.0, 2139.0, 6417.0, 5348.0, 5750.0, 4600.0, 3450.0], "sales": [4278.0, 5347.5, 10695.0, 4278.0, 1069.5, 6417.0, 7808.5], "spend": [259.03, 110.12, 414.3, 291.22, 347.46, 215.1, 163.08], "profit_fc": [1100.86, 436.67, 1229.59, 1078.97, 1261.6, 1070.77, 803.38], "profit": [1176.42, 1702.15, 3187.8, 1118.25, 4.45, 1910.15, 2572.83], "stock": 397, "transit": 60, "price": 919, "spp": 18, "buyout": 93.9, "notes": []}, "270000107": {"resp": "Игорь", "imp": [1703, 2581, 3639, 2447, 1563, 1126, 3313], "clk": [83, 134, 184, 128, 84, 72, 171], "cart": [12, 20, 26, 19, 12, 8, 28], "sales_q": [5, 5, 4, 1, 3, 9, 3], "ord": [3, 6, 8, 5, 3, 3, 6], "rev": [1590.0, 3181.0, 4241.0, 2650.0, 1710.0, 1710.0, 3420.0], "sales": [2650.5, 2650.5, 2120.4, 530.1, 1590.3, 4770.9, 1590.3], "spend": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "profit_fc": [340.95, 683.13, 910.68, 570.71, 400.65, 397.2, 794.4], "profit": [691.91, 771.39, 668.2, 23.52, 136.75, 1122.87, 447.48], "stock": 711, "transit": 50, "price": 454, "spp": 18, "buyout": 92.0, "notes": []}, "270000108": {"resp": "Игорь", "imp": [4054, 1237, 3074, 3430, 2371, 4026, 1330], "clk": [193, 86, 214, 170, 159, 185, 91], "cart": [31, 12, 26, 30, 22, 25, 10], "sales_q": [5, 10, 6, 5, 11, 11, 6], "ord": [9, 4, 10, 7, 9, 7, 4], "rev": [3181.0, 1414.0, 3534.0, 2474.0, 3420.0, 2660.0, 1520.0], "sales": [1767.0, 3534.0, 2120.4, 1767.0, 3887.4, 3887.4, 2226.8], "spend": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "profit_fc": [549.28, 244.22, 607.45, 426.7, 648.71, 507.31, 288.63], "profit": [230.74, 912.64, 399.69, 284.39, 1021.66, 923.3, 475.12], "stock": 750, "transit": 240, "price": 304, "spp": 18, "buyout": 91.6, "notes": []}, "270000109": {"resp": "Анна", "imp": [2267, 1153, 2803, 2603, 3093, 2299, 2706], "clk": [149, 76, 160, 170, 182, 112, 135], "cart": [19, 12, 26, 29, 25, 16, 22], "sales_q": [4, 8, 7, 2, 3, 2, 14], "ord": [6, 2, 6, 8, 10, 6, 7], "rev": [5357.0, 1786.0, 5357.0, 7142.0, 9600.0, 5760.0, 6720.0], "sales": [3571.2, 7142.4, 6249.6, 1785.6, 2678.4, 1785.6, 12902.4], "spend": [208.79, 105.95, 344.56, 250.7, 623.3, 377.14, 352.89], "profit_fc": [1135.3, 342.74, 993.8, 1529.59, 1962.85, 1179.57, 1459.37], "profit": [968.1, 2085.07, 1420.79, 333.26, 106.01, 235.28, 3425.98], "stock": 614, "transit": 80, "price": 768, "spp": 18, "buyout": 92.9, "notes": []}, "270000110": {"resp": "Анна", "imp": [1055, 1468, 1402, 2242, 2290, 1697, 1886], "clk": [71, 81, 82, 109, 146, 116, 98], "cart": [9, 12, 13, 13, 21, 18, 13], "sales_q": [3, 5, 2, 3, 2, 6, 3], "ord": [2, 3, 4, 4, 5, 4, 3], "rev": [6659.0, 9988.0, 13318.0, 13318.0, 17900.0, 14320.0, 10740.0], "sales": [9988.2, 16647.0, 6658.8, 9988.2, 6658.8, 19976.4, 10489.4], "spend": [356.09, 539.75, 863.26, 588.28, 922.92, 883.44, 375.58], "profit_fc": [957.11, 1407.47, 1730.43, 2005.41, 3046.3, 2328.14, 2052.12], "profit": [2485.61, 3830.82, 1010.79, 2219.68, 936.88, 4791.78, 2818.08], "stock": 55, "transit": 10, "price": 2853, "spp": 18, "buyout": 89.4, "notes": []}, "270000111": {"resp": "Анна", "imp": [1644, 2104, 2549, 1199, 2701, 2302, 2086], "clk": [111, 95, 116, 81, 165, 147, 110], "cart": [16, 14, 14, 12, 26, 25, 14], "sales_q": [7, 4, 4, 5, 3, 4, 5], "ord": [5, 4, 6, 3, 8, 6, 5], "rev": [5812.0, 4650.0, 6975.0, 3488.0, 10000.0, 7500.0, 6250.0], "sales": [8137.5, 4650.0, 4650.0, 5812.5, 3487.5, 4650.0, 5987.5], "spend": [326.56, 208.78, 311.58, 160.28, 578.36, 316.09, 284.74], "profit_fc": [940.04, 803.64, 1208.68, 600.13, 1847.0, 1495.14, 1232.73], "profit": [2078.83, 1155.12, 926.68, 1607.07, 474.55, 943.48, 1532.17], "stock": 308, "transit": 25, "price": 1001, "spp": 18, "buyout": 93.5, "notes": []}}, "label": "02.10–08.10.2026"}, "2026-09-25": {"managers": ["Анна", "Игорь"], "cabinet": "Северный дом", "days": ["2026-09-25", "2026-09-26", "2026-09-27", "2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01"], "has_assoc": true, "rnp_bad": [], "articles": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303737, "name": "Клики 270000101 плед графит", "type": "ОЗК (CPC)", "daily": {"imp": [5860, 3339, 5272, 3017, 2604, 3123, 2899], "clk": [136, 102, 124, 88, 93, 85, 71], "cart": [13, 9, 13, 7, 8, 7, 8], "ord": [11, 10, 11, 12, 8, 10, 10], "rev": [14834, 13485, 14834, 16182, 10788, 13485, 13485], "spend": [1685, 1300, 1332, 1195, 1115, 1000, 769], "dord": [8, 7, 8, 9, 6, 7, 7], "drev": [10788, 9440, 10788, 12136, 8091, 9440, 9440]}, "assoc": [{"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "cart": 2, "ord": 2, "rev": 3566}]}], "mgr": ["Анна"]}, {"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303774, "name": "Единая 270000102 плед 200", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [1530, 2508, 3570, 3006, 2559, 2168, 1846], "clk": [48, 58, 82, 79, 61, 56, 47], "cart": [4, 6, 7, 10, 7, 5, 6], "ord": [5, 4, 6, 6, 6, 6, 5], "rev": [8509, 6807, 10211, 10211, 10211, 10212, 8509], "spend": [495, 765, 1161, 932, 802, 712, 655], "dord": [4, 3, 4, 4, 4, 4, 4], "drev": [6808, 5106, 6808, 6808, 6808, 6808, 6808]}, "assoc": [{"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "cart": 5, "ord": 4, "rev": 9456}, {"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "cart": 1, "ord": 4, "rev": 5652}]}], "mgr": ["Анна"]}, {"nm": 270000103, "vendor": "NHW-KNT-130", "name": "Плед вязаный 130×170, молочный", "subject": "Пледы", "brand": "Северный дом", "campaigns": [{"id": 303959, "name": "Единая 270000103 плед вязаный", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [1888, 1895, 2242, 1416, 2204, 2075, 1699], "clk": [44, 62, 60, 49, 57, 59, 50], "cart": [5, 8, 8, 6, 5, 7, 5], "ord": [3, 3, 4, 4, 4, 4, 3], "rev": [6752, 6752, 9002, 9003, 9002, 9003, 6752], "spend": [581, 748, 605, 656, 538, 613, 579], "dord": [2, 2, 3, 3, 3, 3, 2], "drev": [4501, 4501, 6752, 6752, 6752, 6752, 4501]}, "assoc": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "cart": 3, "ord": 1, "rev": 1413}, {"nm": 270000102, "vendor": "NHW-PLD-200", "name": "Плед флисовый 200×220, графит", "subject": "Пледы", "cart": 4, "ord": 3, "rev": 5349}]}], "mgr": ["Анна"]}, {"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "brand": "Северный дом", "campaigns": [{"id": 303811, "name": "Клики 270000104 вафельные полотенца", "type": "ОЗК (CPC)", "daily": {"imp": [1853, 1183, 1356, 1141, 889, 1089, 1548], "clk": [49, 35, 45, 37, 28, 31, 36], "cart": [4, 3, 4, 4, 3, 3, 4], "ord": [16, 12, 10, 16, 9, 10, 8], "rev": [9969, 7477, 6231, 9969, 5608, 6231, 4985], "spend": [764, 519, 412, 514, 438, 398, 486], "dord": [12, 9, 7, 12, 6, 7, 6], "drev": [7477, 5608, 4362, 7477, 3739, 4361, 3739]}, "assoc": [{"nm": 270000105, "vendor": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "subject": "Полотенца", "cart": 6, "ord": 2, "rev": 1678}]}], "mgr": ["Игорь"]}, {"nm": 270000105, "vendor": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "subject": "Полотенца", "brand": "Северный дом", "campaigns": [{"id": 303848, "name": "Единая 270000105 махровое", "type": "ОЗП (CPM, Единая)", "daily": {"imp": [1357, 1160, 710, 1783, 1093, 1342, 1503], "clk": [32, 35, 20, 63, 36, 30, 47], "cart": [3, 3, 1, 5, 3, 2, 6], "ord": [4, 5, 5, 8, 5, 7, 8], "rev": [3199, 3999, 3999, 6398, 3999, 5598, 6399], "spend": [315, 405, 254, 668, 426, 348, 490], "dord": [3, 4, 4, 6, 4, 5, 6], "drev": [2399, 3199, 3199, 4799, 3199, 3999, 4799]}, "assoc": [{"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "cart": 6, "ord": 3, "rev": 1956}]}], "mgr": ["Игорь"]}, {"nm": 270000106, "vendor": "NHW-TBL-140", "name": "Скатерть водоотталкивающая 140×180", "subject": "Скатерти", "brand": "Северный дом", "campaigns": [{"id": 303996, "name": "Ручная 270000106 - скатерть", "type": "ОЗП (CPM, Ручная)", "daily": {"imp": [592, 785, 744, 1185, 720, 701, 1520], "clk": [18, 19, 23, 32, 23, 22, 35], "cart": [1, 2, 2, 3, 3, 2, 4], "ord": [3, 2, 4, 4, 2, 4, 4], "rev": [3208, 2139, 4278, 4278, 2139, 4278, 4278], "spend": [243, 202, 350, 351, 225, 352, 392], "dord": [2, 1, 3, 3, 1, 3, 3], "drev": [2139, 1070, 3208, 3208, 1069, 3208, 3208]}, "assoc": [{"nm": 270000101, "vendor": "NHW-PLD-150", "name": "Плед флисовый 150×200, графит", "subject": "Пледы", "cart": 2, "ord": 3, "rev": 4239}]}], "mgr": ["Игорь"]}, {"nm": 270000107, "vendor": "NHW-APR-01", "name": "Фартук кухонный с карманом, лён", "subject": "Фартуки", "brand": "Северный дом", "campaigns": [], "mgr": ["Игорь"]}, {"nm": 270000108, "vendor": "NHW-MIT-2", "name": "Прихватки-варежки, 2 шт", "subject": "Прихватки", "brand": "Северный дом", "campaigns": [], "mgr": ["Игорь"]}, {"nm": 270000109, "vendor": "NHW-PIL-50", "name": "Наволочки сатин 50×70, 2 шт", "subject": "Наволочки", "brand": "Северный дом", "campaigns": [{"id": 303885, "name": "Ручная 270000109 - наволочки сатин", "type": "ОЗП (CPM, Ручная)", "daily": {"imp": [2254, 750, 840, 707, 919, 1086, 1523], "clk": [53, 20, 24, 20, 22, 27, 35], "cart": [5, 1, 2, 1, 2, 3, 4], "ord": [6, 5, 3, 3, 6, 6, 4], "rev": [5357, 4464, 2678, 2678, 5356, 5357, 3571], "spend": [571, 226, 230, 213, 278, 366, 334], "dord": [4, 4, 2, 2, 4, 4, 3], "drev": [3571, 3571, 1786, 1786, 3571, 3571, 2678]}, "assoc": [{"nm": 270000104, "vendor": "NHW-TWL-W3", "name": "Полотенца вафельные 45×70, набор 3 шт", "subject": "Полотенца", "cart": 6, "ord": 2, "rev": 1304}, {"nm": 270000108, "vendor": "NHW-MIT-2", "name": "Прихватки-варежки, 2 шт", "subject": "Прихватки", "cart": 2, "ord": 4, "rev": 1480}]}], "mgr": ["Анна"]}, {"nm": 270000110, "vendor": "NHW-BED-15", "name": "Комплект постельного белья 1,5-сп., сатин", "subject": "Постельное белье", "brand": "Северный дом", "campaigns": [{"id": 303922, "name": "Клики 270000110 кпб сатин", "type": "ОЗК (CPC)", "daily": {"imp": [2429, 1420, 3064, 3085, 2234, 1871, 1292], "clk": [75, 44, 92, 73, 63, 50, 33], "cart": [10, 4, 11, 6, 6, 4, 3], "ord": [3, 2, 2, 3, 2, 3, 2], "rev": [9988, 6659, 6659, 9988, 6659, 9988, 6659], "spend": [912, 572, 857, 834, 783, 788, 499], "dord": [2, 1, 1, 2, 1, 2, 1], "drev": [6659, 3329, 3330, 6659, 3330, 6659, 3330]}, "assoc": [{"nm": 270000105, "vendor": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "subject": "Полотенца", "cart": 4, "ord": 1, "rev": 839}, {"nm": 270000107, "vendor": "NHW-APR-01", "name": "Фартук кухонный с карманом, лён", "subject": "Фартуки", "cart": 3, "ord": 3, "rev": 1662}]}], "mgr": ["Анна"]}, {"nm": 270000111, "vendor": "NHW-SHT-160", "name": "Простыня на резинке 160×200, сатин", "subject": "Простыни", "brand": "Северный дом", "campaigns": [{"id": 304033, "name": "Клики 270000111 простыня", "type": "ОЗК (CPC)", "daily": {"imp": [397, 738, 1333, 1456, 1165, 581, 450], "clk": [10, 23, 39, 34, 27, 15, 11], "cart": [1, 3, 5, 3, 3, 1, 0], "ord": [2, 3, 4, 4, 3, 3, 2], "rev": [2325, 3487, 4650, 4650, 3487, 3487, 2325], "spend": [152, 294, 527, 359, 320, 233, 189], "dord": [1, 2, 3, 3, 2, 2, 1], "drev": [1163, 2325, 3488, 3487, 2325, 2325, 1163]}, "assoc": [{"nm": 270000105, "vendor": "NHW-TWL-M70", "name": "Полотенце махровое 70×140, серое", "subject": "Полотенца", "cart": 2, "ord": 1, "rev": 839}]}], "mgr": ["Анна"]}], "rnp": {"270000101": {"resp": "Анна", "imp": [7520, 6282, 3823, 7907, 6711, 6303, 4090], "clk": [488, 340, 249, 388, 325, 317, 257], "cart": [85, 42, 38, 64, 45, 51, 34], "sales_q": [13, 9, 13, 16, 16, 16, 9], "ord": [22, 15, 15, 22, 15, 15, 15], "rev": [29667.0, 20228.0, 20228.0, 29667.0, 20228.0, 20228.0, 20228.0], "sales": [18850.0, 13050.0, 18139.5, 22083.5, 21576.0, 21576.0, 12136.5], "spend": [1684.71, 1300.2, 1331.9, 1194.81, 1114.87, 1000.17, 768.58], "profit_fc": [3127.59, 1977.35, 1934.19, 3606.28, 2174.14, 2296.48, 2524.25], "profit": [2345.6, 1504.54, 2164.8, 2973.71, 2834.62, 2415.44, 2355.4], "stock": 202, "transit": 60, "price": 1159, "spp": 18, "buyout": 86.2, "notes": []}, "270000102": {"resp": "Анна", "imp": [3475, 2567, 3106, 3012, 3241, 4667, 2624], "clk": [188, 149, 214, 164, 164, 271, 161], "cart": [24, 24, 33, 21, 24, 45, 25], "sales_q": [9, 6, 5, 7, 8, 9, 7], "ord": [8, 7, 11, 9, 9, 12, 8], "rev": [13615.0, 11913.0, 18721.0, 15317.0, 15317.0, 20423.0, 13615.0], "sales": [16470.0, 10980.0, 8765.7, 12297.6, 13615.2, 15317.1, 11913.3], "spend": [494.63, 764.6, 1161.43, 931.91, 802.44, 711.61, 655.05], "profit_fc": [1848.58, 1287.91, 2060.69, 1701.35, 1833.74, 2784.02, 1677.78], "profit": [3222.96, 1576.46, 600.99, 1607.22, 1437.66, 1121.89, 2335.82], "stock": 241, "transit": 80, "price": 1462, "spp": 18, "buyout": 89.9, "notes": []}, "270000103": {"resp": "Анна", "imp": [1270, 2016, 2923, 2479, 2919, 3341, 2816], "clk": [81, 121, 181, 130, 137, 151, 144], "cart": [10, 16, 32, 18, 22, 22, 17], "sales_q": [7, 4, 8, 5, 6, 6, 7], "ord": [4, 6, 7, 6, 7, 6, 5], "rev": [9002.0, 13504.0, 15754.0, 13504.0, 15754.0, 13504.0, 11253.0], "sales": [16940.0, 9680.0, 19190.6, 11591.8, 13503.6, 13503.6, 15754.2], "spend": [581.38, 748.1, 604.64, 656.34, 537.72, 613.26, 579.16], "profit_fc": [1070.63, 1724.8, 2293.25, 1827.88, 2360.17, 1887.94, 1500.27], "profit": [3420.03, 707.58, 3981.56, 1891.47, 2243.42, 2197.63, 3433.13], "stock": 116, "transit": 12, "price": 1938, "spp": 18, "buyout": 88.2, "notes": []}, "270000104": {"resp": "Игорь", "imp": [8336, 6204, 6058, 8032, 5783, 5107, 5777], "clk": [508, 343, 379, 505, 394, 293, 321], "cart": [80, 50, 57, 66, 49, 38, 43], "sales_q": [11, 18, 21, 18, 24, 22, 14], "ord": [22, 17, 17, 24, 17, 14, 16], "rev": [13708.0, 10593.0, 10593.0, 14954.0, 10593.0, 8723.0, 9970.0], "sales": [7370.0, 12060.0, 13788.6, 11591.0, 14954.4, 13708.2, 8723.4], "spend": [763.72, 519.16, 412.11, 513.99, 437.98, 397.8, 485.88], "profit_fc": [1748.9, 1411.93, 1527.55, 2226.96, 1512.38, 1204.53, 1351.83], "profit": [841.95, 280.15, 2384.9, 1891.2, 2202.31, 1796.53, 1526.13], "stock": 842, "transit": 120, "price": 535, "spp": 18, "buyout": 91.2, "notes": []}, "270000105": {"resp": "Игорь", "imp": [2914, 4095, 2702, 4316, 2288, 4604, 2882], "clk": [164, 201, 181, 276, 159, 210, 176], "cart": [22, 31, 24, 35, 22, 31, 30], "sales_q": [9, 8, 12, 5, 8, 11, 11], "ord": [8, 8, 7, 13, 9, 9, 11], "rev": [6398.0, 6398.0, 5599.0, 10397.0, 7198.0, 7198.0, 8798.0], "sales": [7740.0, 6880.0, 10139.4, 4179.6, 6398.4, 8797.8, 8797.8], "spend": [315.46, 405.07, 254.36, 668.38, 426.01, 348.43, 489.98], "profit_fc": [1094.42, 1003.25, 972.87, 1615.22, 1153.24, 1227.32, 1431.89], "profit": [1399.0, 1360.21, 1803.73, 480.1, 1132.04, 924.76, 2053.45], "stock": 444, "transit": 120, "price": 688, "spp": 18, "buyout": 89.9, "notes": []}, "270000106": {"resp": "Игорь", "imp": [1371, 1567, 2658, 2602, 967, 3702, 2873], "clk": [94, 98, 125, 149, 61, 192, 139], "cart": [14, 17, 20, 18, 10, 27, 20], "sales_q": [5, 1, 4, 5, 5, 3, 10], "ord": [4, 4, 6, 7, 3, 8, 6], "rev": [4278.0, 4278.0, 6417.0, 7486.0, 3208.0, 8556.0, 6417.0], "sales": [5750.0, 1150.0, 4439.0, 5669.5, 5347.5, 3208.5, 10695.0], "spend": [243.44, 202.12, 350.22, 351.14, 224.63, 352.27, 391.98], "profit_fc": [834.83, 873.79, 1272.48, 1541.73, 586.44, 1811.33, 1241.31], "profit": [1483.28, 141.06, 921.04, 1354.16, 1260.87, 507.66, 3205.71], "stock": 430, "transit": 30, "price": 919, "spp": 18, "buyout": 92.5, "notes": []}, "270000107": {"resp": "Игорь", "imp": [1372, 1578, 1787, 1889, 2575, 1451, 1834], "clk": [85, 96, 85, 126, 144, 74, 103], "cart": [10, 12, 10, 17, 23, 12, 17], "sales_q": [5, 4, 6, 4, 5, 3, 5], "ord": [4, 4, 3, 7, 6, 4, 3], "rev": [2120.0, 2120.0, 1590.0, 3711.0, 3181.0, 2120.0, 1590.0], "sales": [2850.0, 2280.0, 3380.1, 2160.3, 2650.5, 1590.3, 2650.5], "spend": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "profit_fc": [453.62, 456.57, 342.8, 800.35, 686.08, 459.03, 342.43], "profit": [800.13, 591.21, 907.76, 549.34, 619.64, 394.82, 449.84], "stock": 588, "transit": 100, "price": 454, "spp": 18, "buyout": 92.9, "notes": []}, "270000108": {"resp": "Игорь", "imp": [2150, 2329, 2878, 2159, 3286, 2873, 3719], "clk": [129, 158, 135, 129, 203, 169, 215], "cart": [17, 20, 22, 17, 30, 21, 36], "sales_q": [5, 6, 6, 5, 6, 5, 4], "ord": [6, 6, 5, 5, 8, 7, 9], "rev": [2120.0, 2120.0, 1767.0, 1767.0, 2827.0, 2474.0, 3181.0], "sales": [1900.0, 2280.0, 2226.8, 1793.6, 2120.4, 1767.0, 1413.6], "spend": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "profit_fc": [367.91, 366.71, 305.39, 305.06, 488.55, 427.64, 552.88], "profit": [410.53, 386.63, 500.65, 392.9, 390.62, 344.67, 364.36], "stock": 486, "transit": 180, "price": 304, "spp": 18, "buyout": 92.1, "notes": []}, "270000109": {"resp": "Анна", "imp": [4069, 2901, 1718, 1418, 3194, 3755, 2110], "clk": [223, 157, 112, 93, 180, 181, 104], "cart": [30, 20, 17, 11, 31, 23, 13], "sales_q": [10, 10, 9, 5, 9, 6, 7], "ord": [10, 7, 5, 5, 8, 9, 6], "rev": [8928.0, 6250.0, 4464.0, 4464.0, 7142.0, 8035.0, 5357.0], "sales": [9600.0, 9600.0, 8371.2, 4531.2, 8035.2, 5356.8, 6249.6], "spend": [571.27, 226.13, 230.35, 213.36, 277.81, 366.33, 333.84], "profit_fc": [1661.54, 1330.37, 886.05, 906.62, 1521.58, 1658.13, 1011.69], "profit": [2224.23, 2477.37, 2169.64, 1004.42, 1899.28, 1072.67, 1622.95], "stock": 500, "transit": 80, "price": 768, "spp": 18, "buyout": 93.9, "notes": []}, "270000110": {"resp": "Анна", "imp": [1942, 957, 1293, 1783, 2026, 1673, 1678], "clk": [121, 66, 89, 93, 94, 113, 82], "cart": [18, 7, 11, 11, 15, 16, 12], "sales_q": [2, 5, 2, 2, 4, 5, 3], "ord": [5, 3, 4, 4, 4, 5, 4], "rev": [16647.0, 9988.0, 13318.0, 13318.0, 13318.0, 16647.0, 13318.0], "sales": [7160.0, 17900.0, 6909.4, 6658.8, 13317.6, 16647.0, 9988.2], "spend": [911.63, 571.8, 856.68, 833.94, 782.71, 788.47, 498.71], "profit_fc": [2385.97, 1408.87, 1748.91, 1771.65, 1843.7, 2516.56, 2124.72], "profit": [914.07, 4024.73, 448.81, 618.87, 2136.56, 2866.17, 1141.14], "stock": 48, "transit": 20, "price": 2853, "spp": 18, "buyout": 88.2, "notes": []}, "270000111": {"resp": "Анна", "imp": [1370, 1814, 2236, 1800, 1743, 1688, 1419], "clk": [91, 119, 128, 114, 105, 98, 85], "cart": [10, 17, 22, 19, 14, 16, 13], "sales_q": [4, 5, 3, 5, 5, 4, 3], "ord": [3, 5, 7, 5, 5, 5, 3], "rev": [3488.0, 5812.0, 8138.0, 5812.0, 5812.0, 5812.0, 3488.0], "sales": [5000.0, 6250.0, 3750.0, 5900.0, 5812.5, 4650.0, 3487.5], "spend": [152.06, 294.26, 526.89, 358.67, 320.01, 232.77, 188.65], "profit_fc": [603.47, 970.98, 1247.03, 913.35, 946.59, 1033.83, 571.76], "profit": [1217.63, 1382.46, 497.43, 1014.21, 873.71, 719.89, 832.77], "stock": 336, "transit": 100, "price": 1001, "spp": 18, "buyout": 93.4, "notes": []}}, "label": "25.09–01.10.2026"}};
+const HIST = {};
+// === дневной архив из всех выгрузок: дата берётся из самой поздней выгрузки, где она есть
+const ISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const dshift=(d,n)=>{const t=new Date(d+'T00:00:00');t.setDate(t.getDate()+n);return ISO(t)};
+const AK=['imp','clk','cart','ord','rev','spend','dord','drev'],RK=['imp','clk','cart','sales_q','ord','rev','sales','spend','profit_fc','profit'];
+const ST=(()=>{const all={...HIST,...WEEKS},st={adSrc:{},rnpSrc:{},ad:{},cm:{},art:{},rnp:{},rlast:{},notes:{},bad:{},cab:''};
+  Object.keys(all).sort().forEach(k=>{const w=all[k];st.cab=w.cabinet;
+    w.days.forEach(d=>st.adSrc[d]=k);
+    w.articles.forEach(a=>{st.art[a.nm]={nm:a.nm,vendor:a.vendor,name:a.name,subject:a.subject,brand:a.brand,mgr:a.mgr||[]};
+      a.campaigns.forEach(c=>{st.cm[c.id]={id:c.id,name:c.name,type:c.type,nm:a.nm};const z=st.ad[c.id]??={};
+        w.days.forEach((d,i)=>{z[d]={src:k};AK.forEach(x=>{const arr=c.daily[x]??c.daily[x==='dord'?'ord':x==='drev'?'rev':x];z[d][x]=arr?arr[i]||0:0})})})});
+    if(w.rnp){const bad=new Set(w.rnp_bad||[]);w.days.forEach(d=>{st.rnpSrc[d]=k;st.bad[d]=bad.has(d)});
+      Object.entries(w.rnp).forEach(([nm,r])=>{const z=st.rnp[nm]??={};
+        w.days.forEach((d,i)=>{z[d]={src:k};RK.forEach(x=>z[d][x]=r[x]?r[x][i]:null)});
+        st.rlast[nm]={resp:r.resp,stock:r.stock,transit:r.transit,price:r.price,spp:r.spp,buyout:r.buyout};
+        const nz=st.notes[nm]??={};(r.notes||[]).forEach(n=>(nz[n.d]??=new Set()).add(n.t))})}
+  });return st})();
+const adGet=(cid,d)=>{const v=ST.ad[cid]&&ST.ad[cid][d];return v&&v.src===ST.adSrc[d]?v:null};
+const rnpGet=(nm,d)=>{const v=ST.rnp[nm]&&ST.rnp[nm][d];return v&&v.src===ST.rnpSrc[d]?v:null};
+// период a..b (любой длины) в формате недели + итоги за столько же дней до начала (prev) для динамики
+function buildPeriod(a,b){
+  if(b<a){const t=a;a=b;b=t}
+  const days=[];for(let d=a;d<=b;d=dshift(d,1))if(ST.adSrc[d])days.push(d);
+  if(!days.length)return null;
+  const N=days.length,S=x=>x.reduce((p,q)=>p+q,0),pdays=days.map(d=>dshift(d,-N));
+  const exact=Object.keys(WEEKS).find(k=>WEEKS[k].days.length===N&&WEEKS[k].days[0]===days[0]&&WEEKS[k].days[N-1]===days[N-1]);
+  const assocOf={};if(exact)WEEKS[exact].articles.forEach(x=>x.campaigns.forEach(c=>assocOf[c.id]=c.assoc||[]));
+  const pcov=pdays.filter(d=>ST.adSrc[d]).length,arts={};
+  Object.keys(ST.ad).forEach(cid=>{const rows=days.map(d=>adGet(cid,d));if(!rows.some(r=>r&&r.spend>0))return;
+    const m=ST.cm[cid],g=arts[m.nm]??={...ST.art[m.nm],campaigns:[]};
+    g.campaigns.push({id:m.id,name:m.name,type:m.type,daily:Object.fromEntries(AK.map(x=>[x,rows.map(r=>r?r[x]:0)])),assoc:assocOf[cid]||[],
+      prev:pcov===N?Object.fromEntries(AK.map(x=>[x,S(pdays.map(d=>{const r=adGet(cid,d);return r?r[x]:0}))])):null});
+  });
+  const bad=days.map(d=>!!(ST.rnpSrc[d]&&ST.bad[d])),rcov=pdays.every(d=>ST.rnpSrc[d]),rnp={};
+  Object.keys(ST.rnp).forEach(nm=>{const rows=days.map(d=>rnpGet(nm,d));if(!rows.some(Boolean))return;
+    const o={...(ST.rlast[nm]||{})};
+    RK.forEach(x=>{const v=rows.map(r=>r?r[x]:null);o[x]=v.some(y=>y!=null)?v.map(y=>y??0):null});
+    o.notes=days.flatMap(d=>[...((ST.notes[nm]||{})[d]||[])].map(t=>({d,t})));
+    let prev=null;
+    if(rcov&&pdays.some(d=>rnpGet(nm,d))){prev={};
+      const idx=days.map((_,i)=>i).filter(i=>!bad[i]&&!ST.bad[pdays[i]]);
+      RK.forEach(x=>{const v=idx.map(i=>{const r=rnpGet(nm,pdays[i]);return r?r[x]:0});prev[x]=!idx.length||v.some(y=>y==null)?null:S(v)})}
+    o.prev=prev;rnp[nm]=o});
+  const f=s=>s.slice(8,10)+'.'+s.slice(5,7);
+  return{managers:[...new Set(Object.values(WEEKS).flatMap(w=>w.managers||[]))],cabinet:ST.cab,days,has_assoc:Object.values(WEEKS).some(w=>w.has_assoc),
+    custom:!exact,articles:Object.values(arts),rnp:Object.keys(rnp).length?rnp:null,rnp_bad:days.filter((_,i)=>bad[i]),
+    prev_cov:pcov,prev_label:f(pdays[0])+'–'+f(pdays[N-1]),label:f(days[0])+'–'+f(days[N-1])+'.'+days[N-1].slice(0,4)};
+}
+function boot(DATA,keepMgr){
+document.querySelectorAll('.chip[data-f]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.v==='all'));['minsp','subj'].forEach(id=>document.getElementById(id).value=id==='minsp'?'0':'');document.getElementById('multi').checked=false;document.getElementById('q').value='';
+const TARGET=0.05;
+const TYPE=t=>t.includes('CPC')?{k:'cpc',n:'Оплата за клики'}:t.includes('Ручная')?{k:'man',n:'Ручная ставка'}:{k:'uni',n:'Единая ставка'};
+const nf=(v,d=0)=>v==null||!isFinite(v)?'—':v.toLocaleString('ru-RU',{minimumFractionDigits:d,maximumFractionDigits:d});
+const pf=(v,d=1)=>v==null||!isFinite(v)?'—':(v*100).toLocaleString('ru-RU',{minimumFractionDigits:d,maximumFractionDigits:d})+'%';
+const rub=(v,d=0)=>v==null||!isFinite(v)?'—':nf(v,d)+' ₽';
+const div=(a,b)=>b?a/b:null, sum=a=>a.reduce((x,y)=>x+y,0);
+const KEYS=['imp','clk','cart','ord','rev','spend','dord','drev'];
+const HAS_AS=!!DATA.has_assoc;
+const derive=t=>({...t,aord:(t.ord||0)-(t.dord||0),arev:(t.rev||0)-(t.drev||0),ddrr:div(t.spend,t.drev),ctr:div(t.clk,t.imp),cpc:div(t.spend,t.clk),crc:div(t.cart,t.clk),cr:div(t.ord,t.clk),c2o:div(t.ord,t.cart),cpo:div(t.spend,t.ord),drr:div(t.spend,t.rev)});
+const totals=d=>derive(Object.fromEntries(KEYS.map(k=>[k,sum(d[k])])));
+const agg=list=>derive(Object.fromEntries(KEYS.map(k=>[k,sum(list.map(x=>x[k]))])));
+const DAYS=DATA.days.map(d=>{const t=new Date(d+'T00:00:00');return{lbl:t.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'}),wd:t.toLocaleDateString('ru-RU',{weekday:'short'}),we:[0,6].includes(t.getDay())}});
+const drrCls=v=>v==null?'bad':v<=TARGET?'good':v<=TARGET*2?'warn':'bad';
+const drrTxt=v=>v==null?'нет заказов':v<=TARGET?'в цели':v<=TARGET*2?'выше цели':'сильно выше цели';
+
+// model
+DATA.articles.forEach(a=>a.campaigns.forEach(c=>{c.daily.dord??=c.daily.ord.slice();c.daily.drev??=c.daily.rev.slice();c.assoc??=[]}));
+const ARTS=DATA.articles.map(a=>{
+  const cs=a.campaigns.map(c=>({...c,t:TYPE(c.type),tot:totals(c.daily)}));
+  const at=agg(cs.map(c=>c.tot));
+  cs.forEach(c=>{c.tot.sshare=div(c.tot.spend,at.spend);c.tot.oshare=div(c.tot.ord,at.ord)});
+  return{...a,cs,at,st:at.drr==null?'none':at.drr<=TARGET?'ok':'over'};
+}).sort((x,y)=>(y.at.drr??Infinity)-(x.at.drr??Infinity)||y.at.spend-x.at.spend);
+let MGR='',SC,CAMPS,T,DAYT;
+function recompute(){SC=ARTS.filter(a=>!MGR||(a.mgr||[]).includes(MGR));CAMPS=SC.flatMap(a=>a.cs.map(c=>({a,c})));T=agg(CAMPS.map(x=>x.c.tot));DAYT=DAYS.map((_,i)=>derive(Object.fromEntries(KEYS.map(k=>[k,sum(CAMPS.map(x=>x.c.daily[k][i]))]))));}
+recompute();
+const RNP=DATA.rnp||null;
+const RBAD=DATA.days.map(d=>(DATA.rnp_bad||[]).includes(d)), RGOOD=RBAD.filter(x=>!x).length;
+const adOrdGood=a=>sum(a.cs.flatMap(c=>c.daily.dord.map((v,i)=>RBAD[i]?0:v))); // прямые заказы с РК в дни, где РНП догружен
+function rnpOf(a){const r=RNP&&RNP[String(a.nm)];if(!r)return null;const S=k=>sum((r[k]||[]).map((v,i)=>RBAD[i]?0:v||0));const o=S('ord'),rv=S('rev'),sp=S('spend'),pfc=S('profit_fc'),pd=RGOOD?o/RGOOD:0;
+  const S0=k=>r[k]&&r[k].some(v=>v!=null)?S(k):null, pv=k=>!r.prev?undefined:r.prev[k]??undefined;
+  const pr=(x,y)=>{const a=pv(x),b=pv(y);return a===undefined||b===undefined?undefined:div(a,b)};
+  return{...r,o,rv,sp,pfc,imp:S0('imp'),clk:S0('clk'),cart:S0('cart'),sq:S0('sales_q'),sales:S('sales'),drrAll:div(sp,rv),margin:div(pfc,rv),days:r.stock!=null&&pd>0?r.stock/pd:null,pv,pr}}
+const noteOn=(r,i)=>r?r.notes.filter(n=>n.d===DATA.days[i]).map(n=>n.t):[];
+const fdt=d=>d.slice(8,10)+'.'+d.slice(5,7);
+const LIM=c=>{const sp=c.daily.spend,mx=Math.max(...sp);return mx>=500&&sp.slice(-3).filter(v=>v>=mx*0.93).length>=2};
+const ACTIVE=c=>{const n=c.daily.spend.length;for(let i=Math.max(0,n-2);i<n;i++){if(!(c.daily.spend[i]===0&&c.daily.imp[i]<50))return true}return false};
+const lbl=x=>`${x.a.name} — ${x.c.t.n}, ID ${x.c.id}`;
+const RA=RNP?SC.map(a=>({a,R:rnpOf(a)})).filter(x=>x.R):[];
+const dd=(R,i)=>div(R.spend[i],R.rev[i]), after=(R,i)=>{const s2=R.spend.slice(i+1,i+3),r2=R.rev.slice(i+1,i+3);return s2.length?div(sum(s2),sum(r2)):null};
+
+// bar chart
+let GID=0;
+function nice(v){const p=Math.pow(10,Math.floor(Math.log10(v)));const f=v/p;return (f<=1?1:f<=2?2:f<=2.5?2.5:f<=3?3:f<=4?4:f<=5?5:10)*p}
+function bars(el,title,vals,fmt,opt={}){
+  const W=opt.w||360,H=opt.h||150,m={l:36,r:6,t:18,b:24},n=vals.length;
+  const fin=vals.filter(v=>v!=null&&isFinite(v));
+  let max=nice(Math.max(...fin,opt.ref||0,opt.min||0.0001)*1.12); if(opt.cap&&max>opt.cap)max=opt.cap;
+  const gid='bg'+(++GID),bw=(W-m.l-m.r)/n, y=v=>m.t+(H-m.t-m.b)*(1-Math.min(v,max)/max);
+  let g='';
+  [0,.5,1].forEach(f=>{const v=max*f;g+=`<line x1="${m.l}" x2="${W-m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text class="ax" x="${m.l-5}" y="${y(v)+3}" text-anchor="end">${fmt(v,true)}</text>`});
+  vals.forEach((v,i)=>{
+    const x=m.l+i*bw+bw*.18,w=bw*.64;
+    g+=`<text class="ax" x="${x+w/2}" y="${H-7}" text-anchor="middle" ${DAYS[i].we?'style="fill:var(--red)"':''}>${DAYS[i].lbl}</text>`;
+    if(v==null){g+=`<text class="ax" x="${x+w/2}" y="${y(0)-4}" text-anchor="middle">·</text>`;return}
+    const inf=!isFinite(v), top=inf?y(max):y(v), hgt=Math.max(y(0)-top,v===0?0:1.5);
+    const col=opt.color?opt.color(v):`url(#${gid})`;
+    if(hgt>0) g+=`<path d="M${x},${y(0)} V${top+Math.min(4,hgt)} Q${x},${top} ${x+4},${top} H${x+w-4} Q${x+w},${top} ${x+w},${top+Math.min(4,hgt)} V${y(0)} Z" fill="${col}"/>`;
+    else g+=`<line x1="${x}" x2="${x+w}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)" stroke-width="2"/>`;
+    g+=`<text class="vl" x="${x+w/2}" y="${top-4}" text-anchor="middle">${inf?'0 зак':(v>max?'▲':'')+fmt(v)}</text>`;
+    g+=`<rect x="${m.l+i*bw}" y="0" width="${bw}" height="${H}" fill="transparent" data-i="${i}"/>`;
+  });
+  if(opt.marks)opt.marks.forEach((t,i)=>{if(t)g+=`<text x="${m.l+i*bw+bw/2}" y="9" text-anchor="middle" font-size="11" style="fill:var(--clay)">✎</text>`});
+  if(opt.ref!=null) g+=`<line x1="${m.l}" x2="${W-m.r}" y1="${y(opt.ref)}" y2="${y(opt.ref)}" stroke="var(--target)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  el.innerHTML=`<h4>${title}</h4><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${title}"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--${opt.tone||'glaze'})"/><stop offset="1" style="stop-color:var(--${opt.tone||'glaze'});stop-opacity:.5"/></linearGradient></defs>${g}</svg><div class="tip"></div>`;
+  const svg=el.querySelector('svg'),tip=el.querySelector('.tip');
+  svg.querySelectorAll('rect[data-i]').forEach(r=>{
+    r.addEventListener('mouseenter',()=>{const i=+r.dataset.i,v=vals[i];const mk=opt.marks&&opt.marks[i];tip.innerHTML=`<b>${DAYS[i].lbl}, ${DAYS[i].wd}</b>: ${v==null?'не крутилась':!isFinite(v)?'расход без заказов':fmt(v)}`+(mk?`<br>✎ ${mk}`:'');tip.style.whiteSpace=mk?'normal':'nowrap';tip.style.maxWidth=mk?'300px':'';tip.style.opacity=1;
+      const b=svg.getBoundingClientRect(),rx=(i+.5)*bw/W*b.width+m.l/W*b.width;tip.style.left=Math.max(0,Math.min(rx-40,b.width-tip.offsetWidth))+'px';tip.style.top='0px'});
+    r.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+}
+const fOrd=(v,ax)=>nf(v,ax&&v%1?1:0);
+const fRub=(v,ax)=>ax?(v>=1000?nf(v/1000,1)+'к':nf(v)):nf(v);
+const fDrr=v=>pf(v,v<0.1?1:0);
+const drrColor=v=>!isFinite(v)||v>TARGET*2?'var(--red)':v>TARGET?'var(--clay)':'var(--sage)';
+
+// advice
+const HOW={cpc:'ставку за клик',uni:'ставку за 1000 показов',man:'ставку за 1000 показов'};
+function campAdvice(c,a){return campAdvice0(c,a)}
+// разбор кампании по навыку «аналитик РК»: вердикт → воронка (где теряем) → динамика → по дням → действие под тип РК → товар целиком
+function campAdvice0(c,a){
+  const t=c.tot,N=DAYS.length,out=[],R=rnpOf(a),k=c.t.k,isCPC=k==='cpc';
+  const cp=DATA.prev_cov===N&&c.prev?derive(c.prev):null, PL=DATA.prev_label||'прошлый период';
+  const ty=agg(CAMPS.filter(x=>x.c.t.k===k).map(x=>x.c.tot));
+  const cpm=div(t.spend,t.imp)*1000, rpc=div(t.rev,t.clk), rpm=div(t.rev,t.imp)*1000;
+  const ch=(x,y)=>y?x/y-1:null, pp=(x,y)=>x==null||y==null?'':(x>=y?'+':'−')+nf(Math.abs(x-y)*100,1)+' п.п.';
+  const idx=[...Array(N).keys()], live=idx.filter(i=>!(c.daily.spend[i]===0&&c.daily.imp[i]<50));
+  const zeroDays=live.filter(i=>c.daily.spend[i]>0&&c.daily.ord[i]===0);
+  const tail=live.slice(-3), head=live.slice(0,Math.max(0,live.length-3));
+  const dr=ix=>div(sum(ix.map(i=>c.daily.spend[i])),sum(ix.map(i=>c.daily.rev[i])));
+  // 1. вердикт
+  let v;
+  if(t.ord===0)v=t.spend<300?['ДАННЫХ МАЛО','warn',`${rub(t.spend)} без заказов — для вывода мало кликов (${nf(t.clk)})`]
+    :['ОСТАНОВКА / ПЕРЕЗАПУСК','bad',`${rub(t.spend)}, ${nf(t.clk)} кликов и ни одного заказа`];
+  else if(t.drr<=TARGET)v=['МАСШТАБ','good',`ДРР ${pf(t.drr)} ≤ 5% — кампания окупает себя, есть запас расти`];
+  else if(t.drr<=TARGET*2)v=['ДОНАСТРОЙКА','warn',`ДРР ${pf(t.drr)} — выше цели на ${pp(t.drr,TARGET)}, но заказы идут (${nf(t.ord)} шт)`];
+  else v=['ПЕРЕЗАПУСК','bad',`ДРР ${pf(t.drr)} — в ${nf(t.drr/TARGET,1)} раза выше цели`];
+  out.push(`<b class="${v[1]}">${v[0]}.</b> ${v[2]}. ${t.ord&&a.cs.length>1?`Доля в рекламных заказах артикула — ${pf(t.oshare,0)} при ${pf(t.sshare,0)} расхода.`:''}`);
+  // 2. воронка — где теряем
+  const f=[];
+  if(t.imp>=1000){if(t.ctr<ty.ctr*0.7)f.push(`<b>CTR ${pf(t.ctr,2)}</b> против ${pf(ty.ctr,2)} в среднем по «${c.t.n}» — карточку мало кликают: главное фото, цена в выдаче, рейтинг/отзывы на превью`);
+    else if(t.ctr>ty.ctr*1.3)f.push(`CTR ${pf(t.ctr,2)} — выше среднего по типу (${pf(ty.ctr,2)}), выдача работает`)}
+  if(t.clk>=50){if(t.crc<ty.crc*0.7)f.push(`<b>клик → корзина ${pf(t.crc)}</b> (в среднем ${pf(ty.crc)}) — теряем на карточке: цена против конкурентов, фото/инфографика, размеры/характеристики`);
+    if(t.cart>=10&&t.c2o!=null&&t.c2o<0.2)f.push(`<b>корзина → заказ ${pf(t.c2o,0)}</b> (${nf(t.ord)} из ${nf(t.cart)}) — кладут и не покупают: срок доставки, наличие на складах рядом с покупателем, цена после СПП`);
+    if(t.cr<ty.cr*0.6&&!f.length)f.push(`<b>клик → заказ ${pf(t.cr,2)}</b> против ${pf(ty.cr,2)} по типу — трафик нецелевой или карточка не дожимает`)}
+  if(t.cpc!=null&&ty.cpc&&t.cpc>ty.cpc*1.4)f.push(`<b>клик ${rub(t.cpc,2)}</b> — дороже среднего по «${c.t.n}» (${rub(ty.cpc,2)})`);
+  if(f.length)out.push('Воронка: '+f.join('; ')+'.');
+  // 3. динамика к прошлому периоду
+  if(cp&&(cp.spend||cp.imp)){const ds=ch(t.spend,cp.spend),do_=ch(t.ord,cp.ord);
+    let s=`К ${PL}: расход ${ds==null?'—':(ds>=0?'+':'')+pf(ds,0)}, заказы ${do_==null?(t.ord?'были 0':'—'):(do_>=0?'+':'')+pf(do_,0)}, ДРР ${cp.drr==null?'без заказов':pf(cp.drr)} → ${pf(t.drr)}`;
+    if(ds>0.15&&(do_??0)<ds/2)s+=' — <b>расход растёт быстрее заказов</b>, дополнительные деньги уходят в менее конверсионный трафик';
+    else if(ds>0.15&&do_>ds)s+=' — рост расхода окупился заказами, направление верное';
+    else if(ds<-0.15&&do_<-0.15)s+=' — урезали расход и потеряли заказы';
+    else if(cp.drr!=null&&t.drr!=null&&t.drr<cp.drr-0.01)s+=' — эффективность улучшилась';
+    out.push(s+'.')}
+  else if(DATA.prev_cov===N)out.push(`В ${PL} кампания не крутилась — сравнивать не с чем, оценивать по следующему периоду.`);
+  // 4. по дням
+  const dd=[];
+  if(zeroDays.length&&t.ord)dd.push(`${zeroDays.length} из ${live.length} дн. с расходом без заказов (${zeroDays.map(i=>DAYS[i].lbl).join(', ')})`);
+  if(head.length>=2&&tail.length===3){const h=dr(head),tl=dr(tail);if(h!=null&&tl!=null){if(tl>h*1.4)dd.push(`за последние 3 дня ДРР вырос до ${pf(tl)} (было ${pf(h)})`);else if(tl<h*0.7)dd.push(`за последние 3 дня ДРР снизился до ${pf(tl)} (было ${pf(h)}) — изменения сработали`)}}
+  if(LIM(c))dd.push('расход упирается в дневной лимит — показы обрезаются');
+  if(dd.length)out.push('По дням: '+dd.join('; ')+'.');
+  // 5. действие под тип РК (CPC — только ставка и бюджет; Единая — ставка CPM; Ручная — ставки по зонам и кластеры)
+  if(t.ord===0){
+    if(t.spend>=300)out.push(isCPC?`Действие: снизить ставку за клик на 30–50% (сейчас ${rub(t.cpc,2)}) или остановить. Фразы в «Оплате за клики» не исключаются — если нужен этот трафик, перенести артикул в Ручную ставку и там отсечь нецелевые кластеры.`
+      :k==='man'?`Действие: в Ручной ставке посмотреть кластеры — исключить все с ~100+ показами без заказов, оставить 3–5 целевых; ставку CPM снизить на 30% (сейчас ${rub(cpm)}).`
+      :`Действие: снизить ставку CPM на 30–50% (сейчас ${rub(cpm)} за 1000 показов) или остановить; Единая сама подбирает запросы — если трафик нецелевой, переносить в Ручную.`);
+  }else if(t.drr<=TARGET){
+    const room=TARGET*t.rev-t.spend;
+    out.push(`Действие: ${LIM(c)?'<b>поднять дневной лимит на 30–50%</b>':'поднять '+(isCPC?`ставку за клик на 10–20% (сейчас ${rub(t.cpc,2)})`:`ставку CPM на 10–20% (сейчас ${rub(cpm)})`)}. До ДРР 5% запас ~${rub(room)} расхода за период при текущей отдаче — это ориентир на ${nf(room/(t.cpo||1),0)} доп. заказов, если конверсия удержится. Поднимать шагами, проверять через 2–3 дня.`);
+  }else{
+    const tgt=isCPC?TARGET*rpc:TARGET*rpm, cur=isCPC?t.cpc:cpm;
+    out.push(`Действие: чтобы выйти на ДРР 5% при текущей конверсии, ${isCPC?'клик должен':'1000 показов должны'} стоить <b>≤ ${rub(tgt,isCPC?2:0)}</b> (сейчас ${rub(cur,isCPC?2:0)}). ${tgt<cur*0.6?'Одной ставкой не дотянуть — нужен рост конверсии карточки (цена, фото, отзывы), ставку снизить на 20–30% и не резать бюджет, чтобы не потерять заказы.':'Снизить ставку шагом 10–15% до этого уровня, бюджет не резать.'}`
+      +(isCPC?' В «Оплате за клики» фразы не исключаются — только ставка и бюджет.':k==='man'?' В Ручной — исключить кластеры с показами без заказов (после ~100 показов), ставки по зонам: поиск оставить, рекомендации урезать первыми.':' В Единой ставка одна на все зоны; если ДРР не снижается — запустить Ручную, чтобы управлять запросами.'));
+  }
+  // 6. товар целиком (РНП)
+  if(R){const g=[];
+    if(R.o)g.push(`всего заказов артикула ${nf(R.o)}${RBAD.some(Boolean)?' (без недогруженных дней)':''}, прямых с рекламы ${pf(Math.min(1,div(adOrdGood(a),R.o)),0)}`);
+    if(R.drrAll!=null)g.push(`ДРР от всех заказов ${pf(R.drrAll)}${t.drr!=null&&t.drr>TARGET&&R.drrAll<=TARGET?' — <b>в цели</b>: реклама тянет органику, резко резать её нельзя':R.drrAll>TARGET*2?' — товар в целом переплачивает за рекламу':''}`);
+    if(R.margin!=null&&R.margin<0)g.push(`<b>прогноз прибыли отрицательный</b> (маржа ${pf(R.margin)}) — ставки не поднимать, сначала цена/себестоимость`);
+    if(R.days!=null&&R.days<10)g.push(`<b>остатка ~${nf(R.days,0)} дн.</b> (${nf(R.stock)} шт, в пути ${nf(R.transit)}) — не разгонять рекламу до поставки`);
+    if(g.length)out.push('Товар целиком: '+g.join('; ')+'.');
+    if(R.notes.length){const n=R.notes.at(-1),i=DATA.days.indexOf(n.d);const b=i>=0?dr(idx.filter(j=>j<i&&live.includes(j))):null,af=i>=0?dr(idx.filter(j=>j>=i&&live.includes(j))):null;
+      out.push(`Журнал: ${fdt(n.d)} — «${n.t}»${b!=null&&af!=null?`; ДРР этой РК до — ${pf(b)}, после — ${pf(af)}${af<b?' (помогло)':af>b*1.1?' (стало хуже — откатить или скорректировать)':''}`:''}.`)}
+  }
+  return out;
+}
+function artHead(a){const wo=a.cs.filter(c=>c.tot.drr!=null);if(!wo.length)return[`На артикуле ${a.cs.length} кампании, ни одна не дала заказов — упор в карточку и цену, а не в ставки.`];const b=[...wo].sort((p,q)=>p.tot.drr-q.tot.drr)[0];return[`На артикуле ${a.cs.length} кампании — лучше работает <b>${b.t.n}</b> (ДРР ${pf(b.tot.drr)}, ${pf(b.tot.oshare,0)} заказов артикула при ${pf(b.tot.sshare,0)} расхода). Основной бюджет держать в ней.`]}
+function artAdvice(a){
+  const out=a.cs.flatMap(c=>campAdvice(c,a));
+  const wo=a.cs.filter(c=>c.tot.drr!=null);
+  if(a.cs.length>1&&wo.length){const b=[...wo].sort((p,q)=>p.tot.drr-q.tot.drr)[0];
+    out.unshift(`На артикуле ${a.cs.length} кампании — лучше работает <b>${b.t.n}</b> (ДРР ${pf(b.tot.drr)}, ${pf(b.tot.oshare,0)} заказов артикула при ${pf(b.tot.sshare,0)} расхода). Основной бюджет держать в ней.`)}
+  return out;
+}
+
+// === TAB 1
+function renderAll(){
+  const byType={};CAMPS.forEach(x=>(byType[x.c.t.k]??=[]).push(x.c.tot));
+  const TY=Object.entries(byType).map(([k,l])=>({k,n:TYPE(k==='cpc'?'CPC':k==='man'?'Ручная':'').n,cnt:l.length,...agg(l)})).sort((p,q)=>(p.drr??9)-(q.drr??9));
+  const zero=CAMPS.filter(x=>x.c.tot.ord===0).sort((p,q)=>q.c.tot.spend-p.c.tot.spend);
+  const zeroSp=sum(zero.map(x=>x.c.tot.spend));
+  const over=CAMPS.filter(x=>x.c.tot.drr!=null&&x.c.tot.drr>TARGET*2).sort((p,q)=>q.c.tot.spend-p.c.tot.spend);
+  const scale=CAMPS.filter(x=>x.c.tot.drr!=null&&x.c.tot.drr<=TARGET&&x.c.tot.ord>=5).sort((p,q)=>q.c.tot.ord-p.c.tot.ord);
+  const limHit=CAMPS.filter(x=>LIM(x.c));
+  const multi=SC.filter(a=>a.cs.length>1);
+  const bestD=DAYT.map((d,i)=>({d,i})).filter(x=>x.d.drr!=null).sort((p,q)=>p.d.drr-q.d.drr);
+  const lo=bestD[0],hi=bestD.at(-1);
+  const tag=T.drr<=TARGET?'МАСШТАБ':T.drr<=TARGET*2.5?'ПЕРЕЗАПУСК':'ОСТАНОВКА';
+  document.getElementById('hsub').textContent=`${DATA.custom?'Период':'Неделя'} ${DAYS[0].lbl}–${DAYS.at(-1).lbl}: где теряются деньги, какие типы РК работают лучше и что масштабировать. Цель — рост заказов при ДРР ≤ 5%.`;
+  document.getElementById('period').innerHTML=`<b>${DAYS[0].lbl}–${DAYS.at(-1).lbl}.2026</b>${CAMPS.length} кампаний с расходом · ${SC.length} артикулов · ${MGR?'управляющий '+MGR+' · ':''}кабинет ${DATA.cabinet}`;
+  const P=document.getElementById('p-all');
+  P.innerHTML=`
+  <div class="verdict"><div class="verdict-tag">${tag}</div><div class="verdict-text">
+    За неделю реклама дала <b>${nf(T.ord)} заказов на ${rub(T.rev)}</b> при расходе ${rub(T.spend)} — <b>ДРР ${pf(T.drr)}</b> при цели 5%. Трафик привлекается нормально (CTR ${pf(T.ctr)}, клик ${rub(T.cpc,2)}), деньги теряются после клика и в отдельных кампаниях:
+    ${over.length} кампаний с ДРР выше 10% забрали ${rub(sum(over.map(x=>x.c.tot.spend)))}, ещё ${rub(zeroSp)} ушло в ${zero.length} кампаний без заказов.
+    Лучше всех работает <b>${TY[0].n}</b> (ДРР ${pf(TY[0].drr)}), ${limHit.length?`${limHit.length} рентабельных кампаний упираются в дневной лимит — это прямой резерв роста.`:''}
+  </div></div>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">Расход</div><div class="value">${rub(T.spend)}</div><div class="note">${nf(T.clk)} кликов</div></div>
+    <div class="kpi"><div class="label">Заказы с рекламы</div><div class="value">${nf(T.ord)}</div><div class="note">на ${rub(T.rev)}${HAS_AS?` · из них ассоц. ${nf(T.aord)} шт (${pf(div(T.arev,T.rev),0)} суммы)`:''}</div></div>
+    <div class="kpi"><div class="label">ДРР</div><div class="value ${drrCls(T.drr)}">${pf(T.drr)}</div><div class="note">цель 5% · ${T.drr>TARGET?'выше на '+nf((T.drr-TARGET)*100,1)+' п.п.':'в цели'}${HAS_AS?` · по прямым ${pf(T.ddrr)}`:' · <b class="warn">без ассоц. заказов</b>'}</div></div>
+    <div class="kpi"><div class="label">CPO</div><div class="value">${rub(T.cpo,2)}</div><div class="note">стоимость заказа</div></div>
+    <div class="kpi"><div class="label">CTR</div><div class="value">${pf(T.ctr,2)}</div><div class="note">CPC ${rub(T.cpc,2)}</div></div>
+    <div class="kpi"><div class="label">CR клик→заказ</div><div class="value">${pf(T.cr,2)}</div><div class="note">в корзину ${pf(T.crc)}</div></div>
+  </div>
+
+  <div id="rnpsec"></div>
+  <section><div class="section-head"><span class="section-num">01</span><div><h2>Воронка: где теряются деньги</h2><p class="section-desc">Вся неделя, все кампании с расходом</p></div></div>
+    <div class="funnel">
+      <div class="funnel-step"><div class="n">${nf(T.imp)}</div><div class="l">Показы</div></div>
+      <div class="funnel-arrow">CTR<br>${pf(T.ctr,2)}</div>
+      <div class="funnel-step"><div class="n">${nf(T.clk)}</div><div class="l">Клики</div></div>
+      <div class="funnel-arrow">в корзину<br>${pf(T.crc)}</div>
+      <div class="funnel-step"><div class="n">${nf(T.cart)}</div><div class="l">Корзины</div></div>
+      <div class="funnel-arrow">корзина→<br>заказ ${pf(T.c2o)}</div>
+      <div class="funnel-step"><div class="n">${nf(T.ord)}</div><div class="l">Заказы</div></div>
+    </div>
+    <p class="section-desc" style="margin-top:14px">Из ${nf(T.cart)} добавлений в корзину до заказа доходит только ${pf(T.c2o)}. Это уже не реклама, а цена, наличие на складах и срок доставки — проверять в первую очередь у кампаний из раздела 04.</p>
+  </section>
+
+  <section><div class="section-head"><span class="section-num">02</span><div><h2>Статистика по дням</h2><p class="section-desc">Столбики — итог по всем кампаниям за день. Пунктир на ДРР — цель 5%. Выходные — красным.</p></div></div>
+    <div class="day-charts"><div class="panel chart" id="d1"></div><div class="panel chart" id="d2"></div><div class="panel chart" id="d3"></div></div>
+    <div class="tbl" style="margin-top:16px"><table><thead><tr><th>День</th><th class="num">Показы</th><th class="num">Клики</th><th class="num">CTR</th><th class="num">CPC</th><th class="num">Корзины</th><th class="num">Заказы</th><th class="num">CPO</th><th class="num">Сумма заказов</th><th class="num">Расход</th><th class="num">ДРР</th></tr></thead><tbody>
+    ${DAYT.map((d,i)=>`<tr><td class="${DAYS[i].we?'bad':''}">${DAYS[i].lbl}, ${DAYS[i].wd}</td><td class="num">${nf(d.imp)}</td><td class="num">${nf(d.clk)}</td><td class="num">${pf(d.ctr,2)}</td><td class="num">${rub(d.cpc,2)}</td><td class="num">${nf(d.cart)}</td><td class="num">${nf(d.ord)}</td><td class="num">${rub(d.cpo)}</td><td class="num">${rub(d.rev)}</td><td class="num">${rub(d.spend)}</td><td class="num ${drrCls(d.drr)}">${pf(d.drr)}</td></tr>`).join('')}
+    <tr><td><b>Итого</b></td><td class="num"><b>${nf(T.imp)}</b></td><td class="num"><b>${nf(T.clk)}</b></td><td class="num"><b>${pf(T.ctr,2)}</b></td><td class="num"><b>${rub(T.cpc,2)}</b></td><td class="num"><b>${nf(T.cart)}</b></td><td class="num"><b>${nf(T.ord)}</b></td><td class="num"><b>${rub(T.cpo)}</b></td><td class="num"><b>${rub(T.rev)}</b></td><td class="num"><b>${rub(T.spend)}</b></td><td class="num ${drrCls(T.drr)}"><b>${pf(T.drr)}</b></td></tr>
+    </tbody></table></div>
+  </section>
+
+  <section><div class="section-head"><span class="section-num">03</span><div><h2>Оплата за клики vs Единая vs Ручная</h2><p class="section-desc">Какой тип кампаний даёт заказ дешевле</p></div></div>
+    <div class="type-cards">${TY.map((t,i)=>`<div class="tcard ${i===0?'winner':''}"><h3>${t.n}${i===0?'<span class="badge win">лучший ДРР</span>':i===TY.length-1?'<span class="badge lose">худший ДРР</span>':''}</h3>
+      <div class="big ${drrCls(t.drr)}">${pf(t.drr)}</div><div class="lbl">ДРР · ${t.cnt} кампаний</div>
+      <div class="tmetrics"><div><b>${pf(t.ctr,2)}</b>CTR</div><div><b>${rub(t.cpc,2)}</b>CPC</div><div><b>${pf(t.cr,2)}</b>CR</div><div><b>${nf(t.ord)}</b>заказов</div><div><b>${rub(t.spend)}</b>расход · ${pf(t.spend/T.spend,0)}</div></div></div>`).join('')}</div>
+  </section>
+
+  <section><div class="section-head"><span class="section-num">04</span><div><h2>Проблемные зоны</h2><p class="section-desc">Кампании, которые съедают бюджет сильнее всего</p></div></div>
+    <div class="two-col">
+      <div><div class="table-title"><span>Расход без единого заказа</span><span class="tot">−${rub(zeroSp)}</span></div>
+        <div class="tbl"><table><thead><tr><th>Кампания</th><th class="num">Клики</th><th class="num">Корзины</th><th class="num">CPC</th><th class="num">Расход</th></tr></thead><tbody>
+        ${zero.slice(0,6).map(x=>`<tr><td class="name">${lbl(x)}</td><td class="num">${nf(x.c.tot.clk)}</td><td class="num">${nf(x.c.tot.cart)}</td><td class="num">${rub(x.c.tot.cpc,2)}</td><td class="num bad">${rub(x.c.tot.spend)}</td></tr>`).join('')}</tbody></table></div></div>
+      <div><div class="table-title"><span>ДРР выше 10% — самые большие расходы</span><span class="tot">−${rub(sum(over.map(x=>x.c.tot.spend)))}</span></div>
+        <div class="tbl"><table><thead><tr><th>Кампания</th><th class="num">CR</th><th class="num">Заказы</th><th class="num">Расход</th><th class="num">ДРР</th></tr></thead><tbody>
+        ${over.slice(0,6).map(x=>`<tr><td class="name">${lbl(x)}</td><td class="num">${pf(x.c.tot.cr)}</td><td class="num">${x.c.tot.ord}</td><td class="num">${rub(x.c.tot.spend)}</td><td class="num bad">${pf(x.c.tot.drr)}</td></tr>`).join('')}</tbody></table></div></div>
+    </div>
+  </section>
+
+  <section><div class="section-head"><span class="section-num">05</span><div><h2>Кандидаты на масштабирование</h2><p class="section-desc">ДРР ≤ 5% и не меньше 5 заказов за неделю</p></div></div>
+    <div class="tbl"><table><thead><tr><th>Кампания</th><th class="num">Показы</th><th class="num">CTR</th><th class="num">CPC</th><th class="num">CR</th><th class="num">Заказы</th><th class="num">Расход</th><th class="num">ДРР</th><th>Лимит</th></tr></thead><tbody>
+    ${scale.slice(0,8).map(x=>`<tr><td class="name">${lbl(x)}</td><td class="num">${nf(x.c.tot.imp)}</td><td class="num">${pf(x.c.tot.ctr)}</td><td class="num">${rub(x.c.tot.cpc,2)}</td><td class="num">${pf(x.c.tot.cr)}</td><td class="num">${x.c.tot.ord}</td><td class="num">${rub(x.c.tot.spend)}</td><td class="num good">${pf(x.c.tot.drr)}</td><td>${LIM(x.c)?'<span class="badge mid" style="margin:0">упирается</span>':'—'}</td></tr>`).join('')}</tbody></table></div>
+  </section>
+
+  <section><div class="section-head"><span class="section-num">06</span><div><h2>Что делать</h2><p class="section-desc">Шаги по порядку влияния на заказы</p></div></div>
+    <div class="rec-list" id="recs"></div>
+  </section>
+
+  <section><div class="section-head"><span class="section-num">07</span><div><h2>Комментарии аналитика</h2><p class="section-desc">Наблюдения по данным недели, не вошедшие в разделы выше</p></div></div>
+    <div class="note-list" id="notes"></div>
+  </section>`;
+  bars(document.getElementById('d1'),'Заказы, шт',DAYT.map(d=>d.ord),fOrd,{h:170});
+  bars(document.getElementById('d2'),'Расход, ₽',DAYT.map(d=>d.spend),fRub,{h:170});
+  bars(document.getElementById('d3'),'ДРР, %',DAYT.map(d=>d.drr),fDrr,{h:170,ref:TARGET,color:drrColor});
+
+  if(RA.length){
+    const o=sum(RA.map(x=>x.R.o)),rv=sum(RA.map(x=>x.R.rv)),sp=sum(RA.map(x=>x.R.sp)),pfc=sum(RA.map(x=>x.R.pfc)),sl=sum(RA.map(x=>x.R.sales)),ado=sum(RA.map(x=>adOrdGood(x.a)));
+    const risk=RA.filter(x=>x.R.days!=null&&x.R.days<10&&x.a.at.spend>0).sort((p,q)=>p.R.days-q.R.days);
+    const loss=RA.filter(x=>x.R.margin!=null&&x.R.margin<0&&x.a.at.spend>0).sort((p,q)=>p.R.pfc-q.R.pfc);
+    document.getElementById('rnpsec').innerHTML=`<section><div class="section-head"><span class="section-num">РНП</span><div><h2>Товары целиком: реклама + органика, прибыль, остатки</h2><p class="section-desc">По отчёту РНП: ${RA.length} из ${SC.length} артикулов с рекламой (РНП есть не по всем товарам кабинета)</p></div></div>
+      <div class="kpi-grid" style="margin-bottom:20px">
+        <div class="kpi"><div class="label">Все заказы</div><div class="value">${nf(o)}</div><div class="note">на ${rub(rv)} · с рекламы ${pf(div(ado,o),0)}${RBAD.some(Boolean)?`<br><span style="color:var(--clay)">без ${DATA.days.filter((_,i)=>RBAD[i]).map(fdt).join(', ')} — РНП не догрузился</span>`:''}</div></div>
+        <div class="kpi"><div class="label">ДРР от всех заказов</div><div class="value ${drrCls(div(sp,rv))}">${pf(div(sp,rv))}</div><div class="note">расход ${rub(sp)}</div></div>
+        <div class="kpi"><div class="label">Прибыль (прогноз)</div><div class="value">${rub(pfc)}</div><div class="note">маржа ${pf(div(pfc,rv))}</div></div>
+        <div class="kpi"><div class="label">Продажи (выкупы)</div><div class="value">${rub(sl)}</div><div class="note">выкуп считается на дату заказа</div></div>
+        <div class="kpi"><div class="label">Остаток < 10 дней</div><div class="value ${risk.length?'warn':''}">${risk.length}</div><div class="note">артикулов с рекламой</div></div>
+        <div class="kpi"><div class="label">В минусе по прибыли</div><div class="value ${loss.length?'bad':''}">${loss.length}</div><div class="note">артикулов с рекламой</div></div>
+      </div>
+      <div class="two-col">
+        <div><div class="table-title"><span>Закончится раньше, чем через 10 дней</span><span class="tot">${risk.length}</span></div><div class="tbl"><table><thead><tr><th>Товар</th><th class="num">Остаток</th><th class="num">В пути</th><th class="num">Хватит, дн.</th><th class="num">ДРР</th></tr></thead><tbody>
+          ${risk.slice(0,8).map(x=>`<tr><td class="name">${x.a.name}<br><span style="color:var(--muted);font-size:12.5px">арт. ${x.a.nm}</span></td><td class="num">${nf(x.R.stock)}</td><td class="num">${nf(x.R.transit)}</td><td class="num ${x.R.days<7?'bad':'warn'}">${nf(x.R.days,0)}</td><td class="num ${drrCls(x.a.at.drr)}">${pf(x.a.at.drr)}</td></tr>`).join('')||'<tr><td colspan="5" class="name">Нет</td></tr>'}</tbody></table></div></div>
+        <div><div class="table-title"><span>В минусе по прогнозу прибыли</span><span class="tot">${rub(sum(loss.map(x=>x.R.pfc)))}</span></div><div class="tbl"><table><thead><tr><th>Товар</th><th class="num">Маржа</th><th class="num">Прибыль</th><th class="num">ДРР от всех</th></tr></thead><tbody>
+          ${loss.slice(0,8).map(x=>`<tr><td class="name">${x.a.name}<br><span style="color:var(--muted);font-size:12.5px">арт. ${x.a.nm}</span></td><td class="num bad">${pf(x.R.margin)}</td><td class="num bad">${rub(x.R.pfc)}</td><td class="num">${pf(x.R.drrAll)}</td></tr>`).join('')||'<tr><td colspan="4" class="name">Нет</td></tr>'}</tbody></table></div></div>
+      </div>
+    </section>`;
+  } else document.getElementById('rnpsec').innerHTML='';
+  const recs=[];
+  if(RA.length){const risk=RA.filter(x=>x.R.days!=null&&x.R.days<7&&x.a.at.spend>0);if(risk.length)recs.push(['Не разгонять рекламу товаров, которые заканчиваются',`${risk.length} артикулов с рекламой имеют остаток меньше чем на неделю: ${risk.slice(0,4).map(x=>`«${x.a.name}» (~${nf(x.R.days,0)} дн.)`).join(', ')}. Сначала поставка, потом рост ставок.`,'остатки, позиции']);
+    const loss=RA.filter(x=>x.R.margin!=null&&x.R.margin<0&&x.a.at.spend>0);if(loss.length)recs.push(['Не поднимать ставки на товары в минусе',`${loss.length} артикулов с рекламой убыточны по прогнозу РНП: ${loss.slice(0,4).map(x=>`«${x.a.name}» (маржа ${pf(x.R.margin)})`).join(', ')}. Сначала цена или себестоимость.`,'прибыль'])}
+  if(scale.length)recs.push(['Добавить бюджет рентабельным кампаниям',`${scale.slice(0,3).map(x=>`«${x.a.name}» (${x.c.t.n}, ДРР ${pf(x.c.tot.drr)}, ${x.c.tot.ord} заказов)`).join(', ')}. ${limHit.length?`${limHit.length} кампаний упираются в дневной лимит — поднять лимит на 30–50%.`:'Поднять ставку на 10–20%.'} Держать, пока ДРР ≤ 5%.`,'заказы, ДРР']);
+  if(over.length)recs.push(['Снизить ставки там, где ДРР выше 10%',`${over.slice(0,3).map(x=>`«${x.a.name}» (${x.c.t.n}, ${pf(x.c.tot.drr)})`).join(', ')}. Снижать ставку на 20–30%, бюджет не резать — заказы в этих кампаниях есть.`,'ДРР, CPO']);
+  if(zero.filter(x=>x.c.tot.spend>=300).length){const z=zero.filter(x=>x.c.tot.spend>=300);recs.push(['Остановить или урезать кампании без заказов',`${z.length} кампаний с расходом от 300 ₽ не дали ни одного заказа: ${z.slice(0,3).map(x=>`«${x.a.name}» ${rub(x.c.tot.spend)}`).join(', ')}.`,'расход впустую'])}
+  const cartNo=CAMPS.filter(x=>x.c.tot.ord===0&&x.c.tot.cart>=5);
+  if(cartNo.length)recs.push(['Проверить карточки, где есть корзины, но нет заказов',`${cartNo.length} кампаний привели ${sum(cartNo.map(x=>x.c.tot.cart))} добавлений в корзину и 0 заказов. Реклама своё сделала — проверить цену, остатки и срок доставки.`,'корзина→заказ']);
+  if(multi.length){const bad=multi.filter(a=>{const w=a.cs.filter(c=>c.tot.drr!=null);return w.length&&a.cs.some(c=>c.tot.drr==null||c.tot.drr>2*Math.min(...w.map(z=>z.tot.drr)))});
+    recs.push(['Разобрать артикулы с несколькими кампаниями',`${multi.length} артикулов крутятся в нескольких РК, у ${bad.length} из них одна кампания минимум вдвое хуже другой по ДРР. Бюджет — в лучшую, остальным снизить ставку. Список — во вкладке «По кампаниям», фильтр «Только с несколькими РК».`,'распределение бюджета'])}
+  recs.push(['Чистить запросы только через Ручную ставку',`В кампаниях «Оплата за клики» и «Единая ставка» фразы не исключаются. Если товар получает много нецелевых кликов (CR ниже 1,5%), запускать на него Ручную ставку и исключать кластеры без заказов после ~100 показов.`,'CR, CPC']);
+  document.getElementById('recs').innerHTML=recs.map((r,i)=>`<div class="rec"><div class="rec-num">${String(i+1).padStart(2,'0')}</div><div class="rec-body"><b>${r[0]}</b><p>${r[1]}</p><span class="fixes">исправляет: ${r[2]}</span></div></div>`).join('');
+
+  const notes=[];
+  notes.push(`Лучший день по ДРР — <b>${DAYS[lo.i].lbl}, ${DAYS[lo.i].wd}</b> (${pf(lo.d.drr)}, ${lo.d.ord} заказов), худший — <b>${DAYS[hi.i].lbl}, ${DAYS[hi.i].wd}</b> (${pf(hi.d.drr)}, расход ${rub(hi.d.spend)}).`);
+  const mx=DAYT.reduce((p,d,i)=>d.spend>DAYT[p].spend?i:p,0);
+  notes.push(`Максимальный расход — <b>${DAYS[mx].lbl}</b>: ${rub(DAYT[mx].spend)}, на ${pf(DAYT[mx].spend/(T.spend/DAYS.length)-1,0)} выше среднего дня. Если ставки в этот день не меняли — проверить, какие кампании дали скачок.`);
+  notes.push(`Воронка: CTR ${pf(T.ctr,2)} и клик ${rub(T.cpc,2)} — нормальный уровень для товаров для дома. Из кликов в корзину ${pf(T.crc)}, из корзины в заказ ${pf(T.c2o)}: основная потеря — на последнем шаге.`);
+  notes.push(`${zero.length} из ${CAMPS.length} кампаний (${pf(zero.length/CAMPS.length,0)}) за неделю не дали ни одного заказа, на них ушло ${rub(zeroSp)} — ${pf(zeroSp/T.spend)} бюджета.`);
+  const top5=[...CAMPS].sort((p,q)=>q.c.tot.spend-p.c.tot.spend).slice(0,5);
+  notes.push(`Пять крупнейших кампаний забирают ${pf(sum(top5.map(x=>x.c.tot.spend))/T.spend,0)} бюджета и дают ${pf(sum(top5.map(x=>x.c.tot.ord))/T.ord,0)} заказов.`);
+  const cpcT=TY.find(t=>t.k==='cpc'),uniT=TY.find(t=>t.k==='uni');
+  if(cpcT&&uniT)notes.push(`Клик в «Единой ставке» дешевле (${rub(uniT.cpc,2)} против ${rub(cpcT.cpc,2)} в «Оплате за клики»), но конверсия в заказ ниже (${pf(uniT.cr,2)} против ${pf(cpcT.cr,2)}) — дешёвый трафик менее целевой.`);
+  notes.push(`Маржи в выгрузке нет, поэтому ориентир — ДРР 5%. ДРР посчитан только по заказам с рекламы: органические заказы, которые реклама подтягивает, сюда не входят.`);
+  document.getElementById('notes').innerHTML=notes.map((t,i)=>`<div class="note-item"><div class="note-num">${String(i+1).padStart(2,'0')}</div><p>${t}</p></div>`).join('');
+}
+
+// === TAB 3: ассоциированные заказы (общий список) ===
+const FA={wk:'',subj:'',q:'',raw:''};
+function renderAssoc(){
+  const el=document.getElementById('p-assoc');
+  if(FA.wk!==DATA.days[0]){FA.wk=DATA.days[0];FA.subj='';FA.q='';FA.raw=''}
+  const head=`<div class="section-head"><span class="section-num">03</span><div><h2>Ассоциированные заказы — общий список</h2><p class="section-desc">Товары, заказанные вместе с рекламой других кампаний, за неделю ${DAYS[0].lbl}–${DAYS.at(-1).lbl}${MGR?' · управляющий: '+MGR:''}. По каждому товару видно, из каких кампаний пришли заказы.</p></div></div>`;
+  if(DATA.custom){el.innerHTML=`<section>${head}<div class="panel" style="color:var(--muted)">Список товаров по ассоциированным заказам есть только для готовых недель — выберите неделю в «Период». В карточках кампаний прямые/ассоциированные заказы по дням считаются и для произвольного периода.</div></section>`;return}
+  if(!HAS_AS){el.innerHTML=`<section>${head}<div class="panel" style="color:var(--muted)">В выгрузке этой недели нет ассоциированных заказов.</div></section>`;return}
+  const map={};
+  SC.forEach(a=>a.cs.forEach(c=>c.assoc.forEach(x=>{
+    if(!x.ord)return;
+    let r=map[x.nm];
+    if(!r)r=map[x.nm]={nm:x.nm,name:x.name,vendor:x.vendor,subject:x.subject,ord:0,rev:0,src:{}};
+    r.ord+=x.ord;r.rev+=x.rev;
+    let s=r.src[c.id];
+    if(!s)s=r.src[c.id]={camp:c.name,type:c.t.n,art:a.nm,artName:a.name,ord:0,rev:0};
+    s.ord+=x.ord;s.rev+=x.rev;
+  })));
+  const all=Object.values(map).sort((p,q)=>q.ord-p.ord||q.rev-p.rev);
+  if(!all.length){el.innerHTML=`<section>${head}<div class="panel" style="color:var(--muted)">За выбранную неделю ассоциированных заказов нет.</div></section>`;return}
+  const subjOpts=[...new Set(all.map(r=>r.subject))].sort();
+  if(FA.subj&&!subjOpts.includes(FA.subj))FA.subj='';
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  el.innerHTML=`<section>${head}
+    <div class="filters">
+      <div class="fg"><span class="lbl">Предмет:</span><select id="asubj"><option value="">Все</option>${subjOpts.map(v=>`<option${v===FA.subj?' selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="fg"><input type="search" id="aq" placeholder="Артикул или название" value="${esc(FA.raw)}"></div>
+    </div>
+    <div id="alist"></div>
+  </section>`;
+  el.querySelector('#asubj').onchange=e=>{FA.subj=e.target.value;renderAssocList()};
+  el.querySelector('#aq').oninput=e=>{FA.raw=e.target.value;FA.q=e.target.value.trim().toLowerCase();renderAssocList()};
+  function renderAssocList(){
+    const list=all.filter(r=>(!FA.subj||r.subject===FA.subj)&&(!FA.q||(r.nm+' '+r.name+' '+r.vendor).toLowerCase().includes(FA.q)));
+    const camps=new Set();list.forEach(r=>Object.keys(r.src).forEach(id=>camps.add(id)));
+    const lO=sum(list.map(r=>r.ord)),lR=sum(list.map(r=>r.rev));
+    el.querySelector('#alist').innerHTML=`
+    <p class="count">Показано: ${list.length} из ${all.length} товаров · заказы ${nf(lO)} шт на ${rub(lR)}</p>
+    <div class="tbl"><table><thead><tr><th>Товар</th><th>Из каких кампаний заказали</th><th class="num">Заказы</th><th class="num">Выручка</th></tr></thead><tbody>
+    ${list.map(r=>`<tr><td class="name">${r.name}<br><span style="color:var(--muted);font-size:12.5px">арт. WB ${r.nm} · ${r.vendor} · ${r.subject}</span></td>
+      <td>${Object.values(r.src).sort((p,q)=>q.ord-p.ord).map(s=>`${s.camp.replace(/\s+/g,' ')} — ${nf(s.ord)} зак. на ${rub(s.rev)}<br><span style="color:var(--muted);font-size:12.5px">реклама товара «${s.artName}» (арт. ${s.art}) · ${s.type}</span>`).join('<br>')}</td>
+      <td class="num"><b>${nf(r.ord)}</b></td><td class="num">${rub(r.rev)}</td></tr>`).join('')||'<tr><td colspan="4" class="name">Под фильтр ничего не попало</td></tr>'}
+    ${list.length?`<tr><td><b>Итого</b></td><td>${list.length} товаров · заказаны из ${camps.size} кампаний</td><td class="num"><b>${nf(lO)}</b></td><td class="num"><b>${rub(lR)}</b></td></tr>`:''}
+    </tbody></table></div>
+    <p class="section-desc" style="margin-top:10px">Ассоциированный заказ — товар из той же рекламной кампании, но не её главный артикул. Итоги по каждой кампании отдельно — на вкладке «По кампаниям».</p>`;
+  }
+  renderAssocList();
+}
+
+// === TAB 4: журнал изменений ставок и цен (заметки из РНП)
+function renderLog(){
+  const el=document.getElementById('p-log');
+  const NT=RA.flatMap(x=>x.R.notes.map(n=>({...n,a:x.a,R:x.R}))).sort((p,q)=>p.d<q.d?-1:1);
+  const head=`<div class="section-head"><span class="section-num">04</span><div><h2>Журнал изменений ставок и цен</h2><p class="section-desc">Заметки из колонки «Заметки» отчёта РНП за неделю ${DAYS[0].lbl}–${DAYS.at(-1).lbl}${MGR?' · управляющий: '+MGR:''}. Показано, что стало с ДРР товара после каждого изменения.</p></div></div>`;
+  if(!NT.length){el.innerHTML=`<section>${head}<div class="panel" style="color:var(--muted)">За эту неделю заметок в РНП нет.</div></section>`;return}
+  el.innerHTML=`<section>${head}
+    <div class="tbl"><table><thead><tr><th>Дата</th><th>Товар</th><th>Изменение</th><th class="num">ДРР товара в этот день</th><th class="num">ДРР 2 дня после</th></tr></thead><tbody>
+    ${NT.map(n=>{const i=DATA.days.indexOf(n.d),b=dd(n.R,i),af=after(n.R,i);return `<tr><td class="mono">${fdt(n.d)}</td><td class="name">${n.a.name}</td><td>${n.t}</td><td class="num">${pf(b)}</td><td class="num ${af==null||b==null?'':af<b?'good':'bad'}">${af==null?'—':pf(af)}</td></tr>`}).join('')}</tbody></table></div>
+    <p class="section-desc" style="margin-top:10px">ДРР товара — от всех его заказов (реклама + органика) по РНП. Зелёный — после изменения ДРР снизился, красный — вырос. Два дня — короткий срок, это ориентир, а не вывод.</p>
+  </section>`;
+}
+
+// === TAB 2
+const F={st:'all',tp:'all',ac:'all',subj:'',multi:false,q:'',minsp:0};
+function renderCamp(){
+  const arts=SC.filter(a=>a.at.spend>=F.minsp&&(F.st==='all'||a.st===F.st)&&(F.tp==='all'||a.cs.some(c=>c.t.k===F.tp))&&(F.ac==='all'||a.cs.some(c=>ACTIVE(c)!==(F.ac==='no')))&&(!F.subj||a.subject===F.subj)&&(!F.multi||a.cs.length>1)
+    &&(!F.q||(a.nm+' '+a.vendor+' '+a.name+' '+a.cs.map(c=>c.id+' '+c.name).join(' ')).toLowerCase().includes(F.q)));
+  const cols=arts.flatMap(a=>a.cs.filter(c=>(F.tp==='all'||c.t.k===F.tp||a.cs.length>1)&&(F.ac==='all'||ACTIVE(c)===(F.ac==='yes'))).map((c,j)=>({a,c,j})));
+  document.getElementById('count').textContent=`Кампаний: ${cols.length} · артикулов: ${arts.length} из ${SC.length}${MGR?' (управляющий '+MGR+')':''} · сортировка: худший ДРР сверху (слева) · кампании одного артикула стоят рядом · пустые без расхода скрыты`;
+  const L=document.getElementById('list');L.innerHTML='';
+  if(!cols.length){L.innerHTML='<div class="panel" style="color:var(--muted)">Под фильтр ничего не попало</div>';syncHs();return}
+  const PL=DATA.prev_label||'прошл. нед.';
+  // динамика неделя к неделе: rel — % изменения (деньги/штуки), pp — разница в п.п. (доли)
+  // динамика неделя к неделе: rel — % изменения (деньги/штуки), pp — разница в п.п. (доли)
+  const dyn=(cur,prev,good,kind)=>{if(prev===undefined)return'';if(cur==null||prev==null||!isFinite(cur)||!isFinite(prev))return'<span class="dyn">—</span>';
+    let v,txt;if(kind==='pp'){v=cur-prev;txt=(v>0?'+':v<0?'−':'')+nf(Math.abs(v)*100,1)+' п.п.'}else{if(!prev)return cur?'<span class="dyn">новое</span>':'<span class="dyn">—</span>';v=cur/prev-1;txt=(v>0?'↑':v<0?'↓':'')+pf(Math.abs(v),0)}
+    const thr=kind==='pp'?0.002:0.03,cls=good==null||Math.abs(v)<thr?'':(v>0)===good?'good':'bad';return `<span class="dyn ${cls}" title="${PL}: ${kind==='pp'?pf(prev,2):nf(prev)}">${txt}</span>`};
+  // строка: название | итог 7 дней + динамика | значения по дням
+  const fx=v=>v==null||!isFinite(v)?'—':Math.abs(v)>=100?nf(v):nf(v,Math.abs(v)<10&&v%1?1:0);
+  const fp=(v,d=1)=>v==null||!isFinite(v)?'—':nf(v*100,d);
+  // o.bar — мини-столбик под цифрой (высота от максимума за неделю; o.bar='drr' — цвет по цели ДРР, потолок 30%)
+  const drow=(k,tot,prev,fmt,good,kind,day,dfmt,o={})=>{const vs=DAYS.map((_,i)=>day(i));
+    const mx=o.bar?Math.max(...vs.map(v=>v==null?0:v===Infinity?(o.bar==='drr'?0.3:0):o.bar==='drr'?Math.min(v,0.3):v),o.bar==='drr'?TARGET*1.5:0)||1:1;
+    const mb=v=>{if(!o.bar||v===undefined)return'';const x=v==null?0:v===Infinity?mx:o.bar==='drr'?Math.min(v,0.3):Math.max(v,0);const c=o.bar==='drr'?drrColor(v==null?0:v):o.bar==='clay'?'var(--clay)':'var(--glaze)';
+      return `<div class="mb"><i style="height:${Math.max(x>0?2:0,Math.round(x/mx*24))}px;background:${c}"></i></div>`};
+    return `<tr class="${o.sub?'sub':''}${o.key?' key':''}${o.bar?' hb':''}"><td>${k}</td><td class="cur">${fmt(tot)}${dyn(tot,prev,good,kind)}</td>${vs.map(v=>`<td class="${o.dc?o.dc(v):''}">${v===undefined?'·':dfmt(v)}${mb(v)}</td>`).join('')}</tr>`};
+  const sect=(t,col)=>`<tr class="sect"><td colspan="${DAYS.length+2}" style="color:var(${col})">${t}</td></tr>`;
+  cols.forEach(({a,c,j},idx)=>{
+    const R=rnpOf(a);
+    const RR=R&&RNP[String(a.nm)], rd=(i,k)=>RR&&RR[k]&&!RBAD[i]?RR[k][i]:null, rq=(i,x,y)=>div(rd(i,x),rd(i,y));
+    const t=c.tot, d=i=>Object.fromEntries(KEYS.map(k=>[k,c.daily[k][i]])), act=i=>!(c.daily.spend[i]===0&&c.daily.imp[i]<50);
+    const cp=c.prev?derive(c.prev):null, P=k=>DATA.prev_cov===DAYS.length?(cp?cp[k]:0):undefined; // кампании не было на прошлой неделе — нули
+    const isNew=DATA.prev_cov===DAYS.length&&(!cp||!cp.spend&&!cp.imp);
+    const dl=(v,good)=>{if(v==null||!isFinite(v))return'';const up=v>0;const cls=Math.abs(v)<0.05?'':(up===good?'good':'bad');return `<span class="${cls}">${up?'↑':'↓'} ${pf(Math.abs(v),0)}</span>`};
+    const vsAcc=(v,avg,good)=>v==null||avg==null?'—':dl(v/avg-1,good)+' к кабинету';
+    const col=document.createElement('div');col.className='camp-col';
+    const nm=c.name.replace(/\s+/g,' ');
+    const sib=a.cs.length>1?`<div class="cblock sib"><p class="blabel">Другие РК на этом артикуле · ${a.cs.length} кампании</p><div class="tbl"><table><thead><tr><th>Кампания</th><th class="num">Заказы</th><th class="num">Доля расх.</th><th class="num">CPO</th><th class="num">ДРР</th></tr></thead><tbody>
+      ${a.cs.map(x=>`<tr class="${x===c?'me':''}"><td class="name" style="min-width:0">${x.t.n}${x===c?' · эта':''}</td><td class="num">${x.tot.ord}</td><td class="num">${pf(x.tot.sshare,0)}</td><td class="num">${rub(x.tot.cpo)}</td><td class="num ${drrCls(x.tot.drr)}">${pf(x.tot.drr)}</td></tr>`).join('')}</tbody></table></div></div>`:'';
+    const pos=(v,max)=>Math.max(0,Math.min(100,v/max*100));
+    const bench=(k,v,avg,fmt,max,good)=>v==null||!isFinite(v)?'':`<div class="bench"><span class="k">${k}</span><div class="tr"><span class="avg" style="left:${pos(avg,max)}%"></span><span class="dot" style="left:${pos(v,max)}%;background:${(good?v>=avg:v<=avg)?'var(--sage)':'var(--red)'}"></span></div><span class="v">${fmt(v)}</span></div>`;
+    col.innerHTML=`<div class="col-head"><span class="col-num">${String(idx+1).padStart(2,'0')}</span><div>
+        ${a.cs.length>1?`<div class="agrp">Артикул ${a.nm} · РК ${j+1} из ${a.cs.length}</div>`:''}
+        <h2>${nm}</h2><p class="section-desc">${a.name} · ID ${c.id} · ${a.subject} · ${a.brand}</p></div></div>
+      <div class="ccard">
+        <div class="cblock"><div class="ckicker">${c.t.n} · ${c.t.k==='cpc'?'CPC':'CPM'}</div><h3 class="ctitle">Итоги за ${DAYS.length===7?'неделю':'период'}</h3>
+          <span class="cpill cp-${drrCls(t.drr)}">${t.drr==null?'расход без заказов':'ДРР '+pf(t.drr)+' — '+drrTxt(t.drr)}</span></div>
+        <div class="cblock tblock"><p class="blabel">Неделя ${DAYS[0].lbl}–${DAYS.at(-1).lbl} · в итоге — динамика к ${PL}${isNew?' · <b style="color:var(--clay)">РК на прошлой неделе не крутилась</b>':''}</p>
+          <div class="dtab-wrap"><table class="dtab"><thead><tr><th>Показатель</th><th class="cur">${DAYS.length} дн.</th>${DAYS.map((x,i)=>{const n=noteOn(R,i);return `<th class="${x.we?'we':''}"${n.length?` title="✎ ${n.join('; ').replace(/"/g,'')}"`:''}>${x.lbl.slice(0,5)}${n.length?'<span class="nmk">✎</span>':''}${RBAD[i]?'<span class="nmk" title="РНП не догрузился">*</span>':''}</th>`}).join('')}</tr></thead><tbody>
+          ${sect('Реклама этой РК','--glaze')}
+          ${drow('Расход, ₽',t.spend,P('spend'),v=>rub(v),null,null,i=>act(i)?d(i).spend:undefined,fx,{key:1,bar:'glaze'})}
+          ${drow('Показы',t.imp,P('imp'),v=>nf(v),true,null,i=>act(i)?d(i).imp:undefined,fx)}
+          ${drow('Клики',t.clk,P('clk'),v=>nf(v),true,null,i=>act(i)?d(i).clk:undefined,fx)}
+          ${drow('CTR, %',t.ctr,P('ctr'),v=>pf(v,2),true,'pp',i=>act(i)?derive(d(i)).ctr:undefined,v=>fp(v,2),{sub:1})}
+          ${drow('Цена клика, ₽',t.cpc,P('cpc'),v=>rub(v,2),false,null,i=>act(i)?derive(d(i)).cpc:undefined,v=>v==null?'—':nf(v,1),{sub:1})}
+          ${drow('Корзины',t.cart,P('cart'),v=>nf(v),true,null,i=>act(i)?d(i).cart:undefined,fx)}
+          ${drow('Клик → корзина, %',t.crc,P('crc'),v=>pf(v),true,'pp',i=>act(i)?derive(d(i)).crc:undefined,v=>fp(v),{sub:1})}
+          ${drow('Заказы'+(HAS_AS?' (прям. / ассоц.)':''),t.ord,P('ord'),v=>nf(v)+(HAS_AS?` <small>(${nf(t.dord)} / ${nf(t.aord)})</small>`:''),true,null,i=>act(i)?d(i).ord:undefined,fx,{key:1,bar:'glaze'})}
+          ${drow('Клик → заказ, %',t.cr,P('cr'),v=>pf(v,2),true,'pp',i=>act(i)?derive(d(i)).cr:undefined,v=>fp(v,2),{sub:1})}
+          ${drow('Сумма заказов, ₽',t.rev,P('rev'),v=>rub(v),true,null,i=>act(i)?d(i).rev:undefined,fx,{bar:'glaze'})}
+          ${drow('Стоимость заказа, ₽',t.cpo,P('cpo'),v=>rub(v),false,null,i=>act(i)?derive(d(i)).cpo:undefined,fx,{sub:1})}
+          ${drow('ДРР РК, %',t.drr,P('drr'),v=>pf(v,1),false,'pp',i=>{if(!act(i))return undefined;const x=d(i);return x.spend&&!x.rev?Infinity:div(x.spend,x.rev)},v=>v===Infinity?'0 зак':fp(v,0),{key:1,bar:'drr',dc:v=>v===undefined?'':'dc-'+drrCls(v===Infinity?null:v)})}
+          ${RR?sect('Весь артикул — РНП (реклама + органика)','--clay')+[
+            drow('Показы',R.imp,R.pv('imp'),v=>nf(v),true,null,i=>rd(i,'imp'),fx),
+            drow('Клики',R.clk,R.pv('clk'),v=>nf(v),true,null,i=>rd(i,'clk'),fx),
+            drow('CTR, %',div(R.clk,R.imp),R.pr('clk','imp'),v=>pf(v,2),true,'pp',i=>rq(i,'clk','imp'),v=>fp(v,2),{sub:1}),
+            drow('Корзина',R.cart,R.pv('cart'),v=>nf(v),true,null,i=>rd(i,'cart'),fx),
+            drow('Конв. в корзину, %',div(R.cart,R.clk),R.pr('cart','clk'),v=>pf(v),true,'pp',i=>rq(i,'cart','clk'),v=>fp(v),{sub:1}),
+            drow('Заказы, шт',R.o,R.pv('ord'),v=>nf(v),true,null,i=>rd(i,'ord'),fx,{key:1,bar:'clay'}),
+            drow('Конв. в заказ, %',div(R.o,R.cart),R.pr('ord','cart'),v=>pf(v),true,'pp',i=>rq(i,'ord','cart'),v=>fp(v),{sub:1}),
+            drow('Заказы, ₽',R.rv,R.pv('rev'),v=>rub(v),true,null,i=>rd(i,'rev'),fx,{key:1,bar:'clay'}),
+            drow('Средний чек, ₽',div(R.rv,R.o),R.pr('rev','ord'),v=>rub(v),true,null,i=>rq(i,'rev','ord'),fx,{sub:1}),
+            drow('Доля заказов с РК (прямые), %',div(adOrdGood(a),R.o),undefined,v=>pf(v,0),null,null,i=>RBAD[i]?null:div(sum(a.cs.map(x=>x.daily.dord[i])),rd(i,'ord')),v=>fp(v,0),{sub:1}),
+            drow('Продажи, шт',R.sq,R.pv('sales_q'),v=>nf(v),true,null,i=>rd(i,'sales_q'),fx),
+            drow('Продажи, ₽',R.sales,R.pv('sales'),v=>rub(v),true,null,i=>rd(i,'sales'),fx),
+            drow('Расходы РК (все), ₽',R.sp,R.pv('spend'),v=>rub(v),null,null,i=>rd(i,'spend'),fx,{bar:'clay'}),
+            drow('ДРР от всех заказов, %',R.drrAll,R.pr('spend','rev'),v=>pf(v),false,'pp',i=>{const sp=rd(i,'spend'),rv=rd(i,'rev');return sp&&!rv?Infinity:div(sp,rv)},v=>v===Infinity?'0 зак':fp(v,0),{key:1,bar:'drr',dc:v=>'dc-'+drrCls(v===Infinity?null:v)}),
+            drow('Прибыль (прогноз), ₽',R.pfc,R.pv('profit_fc'),v=>rub(v),true,null,i=>rd(i,'profit_fc'),fx,{dc:v=>v<0?'dc-bad':''}),
+            drow('Маржа (прогноз), %',R.margin,R.pr('profit_fc','rev'),v=>pf(v),true,'pp',i=>rq(i,'profit_fc','rev'),v=>fp(v,0),{sub:1})].join(''):''}
+          </tbody></table></div>
+          <p class="bnote">${RBAD.some(Boolean)?`<b style="color:var(--clay)">РНП за ${DATA.days.filter((_,i)=>RBAD[i]).map(fdt).join(', ')} ещё не догрузился (заказов почти нет) — итоги «весь артикул» и сравнение с прошлым периодом посчитаны без этих дней.</b> `:''}Итог — сумма за ${DAYS.length} дн., под ним динамика к ${PL} (зелёный — лучше, красный — хуже; доли — в п.п.). «·» — РК в этот день не крутилась. ✎ — в этот день было изменение (наведите на дату).</p>
+          <div class="drrbox"><span class="t">ДРР за неделю<br>расход ${rub(t.spend)} / заказы на ${rub(t.rev)}${HAS_AS?'<br>по прямым '+pf(t.ddrr):''}</span><span class="big ${drrCls(t.drr)}">${t.drr==null?'—':pf(t.drr,2)}</span></div>
+        </div>
+        <div class="cblock"><p class="blabel">Сравнение со средним по кабинету</p>
+          ${bench('CTR',t.ctr,T.ctr,v=>pf(v,2),Math.max(t.ctr||0,T.ctr)*1.6,true)}
+          ${bench('CPC',t.cpc,T.cpc,v=>rub(v,2),Math.max(t.cpc||0,T.cpc)*1.6,false)}
+          ${bench('CR',t.cr,T.cr,v=>pf(v,2),Math.max(t.cr||0,T.cr)*1.6,true)}
+          ${bench('ДРР',t.drr,TARGET,v=>pf(v),Math.max(t.drr||0,T.drr)*1.4,false)}
+          <p class="bnote">Черта — среднее по кабинету (для ДРР — цель 5%). Зелёная точка — лучше среднего, красная — хуже.</p></div>
+        ${R?`<div class="cblock"><p class="blabel">Товар целиком — остатки и цена</p>
+          <div class="mrow"><span class="k">Выкуп, %</span><span class="v">${R.buyout==null?'—':nf(R.buyout,0)+'%'}</span><span class="d"></span></div>
+          <div class="mrow"><span class="k">Остаток FBO / в пути</span><span class="v ${R.days!=null&&R.days<7?'bad':R.days!=null&&R.days<14?'warn':''}">${nf(R.stock)} / ${nf(R.transit)}</span><span class="d">${R.days==null?'':'хватит ~'+nf(R.days,0)+' дн.'}</span></div>
+          <div class="mrow"><span class="k">Цена после СПП</span><span class="v">${rub(R.price)}</span><span class="d">СПП ${R.spp==null?'—':nf(R.spp,0)+'%'}</span></div>
+          ${R.notes.length?`<p class="blabel" style="margin-top:12px">Журнал изменений (✎ на графиках)</p>${R.notes.map(n=>`<div class="mrow" style="grid-template-columns:52px 1fr"><span class="k mono">${fdt(n.d)}</span><span style="font-size:14px">${n.t}</span></div>`).join('')}`:''}
+          <p class="bnote">Ответственный: ${R.resp}</p></div>`:''}
+        <div class="cblock"><p class="blabel">По дням · слева реклама этой кампании, справа товар целиком (РНП)</p>
+          <div class="ch2"><div><h5 style="color:var(--glaze)">Реклама РК</h5><div class="chart"></div><div class="chart"></div><div class="chart"></div></div>
+          <div><h5 style="color:var(--clay)">Весь артикул</h5>${R?'<div class="chart"></div><div class="chart"></div><div class="chart"></div>':'<p class="bnote">Артикула нет в РНП за эту неделю.</p>'}</div></div></div>
+        ${c.assoc.length?`<div class="cblock sib"><p class="blabel">Ассоциированные заказы — другие товары с этой рекламы</p><div class="tbl"><table><thead><tr><th>Товар</th><th class="num">Корзины</th><th class="num">Заказы</th><th class="num">Сумма</th></tr></thead><tbody>
+          ${c.assoc.slice(0,8).map(x=>`<tr><td class="name" style="min-width:0">${x.name}<br><span style="color:var(--muted);font-size:12.5px">арт. WB ${x.nm} · ${x.vendor} · ${x.subject}</span></td><td class="num">${nf(x.cart)}</td><td class="num">${nf(x.ord)}</td><td class="num">${rub(x.rev)}</td></tr>`).join('')}
+          ${c.assoc.length>8?`<tr><td class="name" style="min-width:0;color:var(--muted)">ещё ${c.assoc.length-8} товаров</td><td class="num">${nf(sum(c.assoc.slice(8).map(x=>x.cart)))}</td><td class="num">${nf(sum(c.assoc.slice(8).map(x=>x.ord)))}</td><td class="num">${rub(sum(c.assoc.slice(8).map(x=>x.rev)))}</td></tr>`:''}
+          </tbody></table></div><p class="bnote">${pf(div(t.arev,t.rev),0)} суммы заказов этой кампании — другие товары. ДРР кампании посчитан по всем заказам, как в кабинете.</p></div>`:''}
+        ${sib}
+        <div class="cblock ctodo"><p class="blabel">Что сделать</p><ol>${(a.cs.length>1&&j===0?artHead(a):[]).concat(campAdvice(c,a)).map(x=>`<li>${x}</li>`).join('')}</ol></div>
+      </div>`;
+    L.appendChild(col);
+    const [g1,g2,g3,g4,g5,g6]=col.querySelectorAll('.chart'), MK=DAYS.map((_,i)=>noteOn(R,i).join('; ')), CO={h:150,w:330,marks:MK};
+    bars(g1,'Заказы с РК, шт',DAYS.map((_,i)=>act(i)?d(i).ord:null),fOrd,{...CO,min:1.7});
+    bars(g2,'Расход РК, ₽',DAYS.map((_,i)=>act(i)?d(i).spend:null),fRub,CO);
+    bars(g3,'ДРР РК, %',DAYS.map((_,i)=>{if(!act(i))return null;const x=d(i);return x.spend&&!x.rev?Infinity:div(x.spend,x.rev)}),fDrr,{...CO,ref:TARGET,cap:0.3,color:drrColor});
+    if(R){bars(g4,'Все заказы, шт',R.ord,fOrd,{...CO,min:1.7,tone:'clay'});
+      bars(g5,'Сумма заказов, ₽',R.rev,fRub,{...CO,tone:'clay'});
+      bars(g6,'ДРР от всех заказов, %',R.ord.map((_,i)=>R.spend[i]&&!R.rev[i]?Infinity:div(R.spend[i],R.rev[i])),fDrr,{...CO,ref:TARGET,cap:0.3,color:drrColor});}
+  });
+  L.scrollLeft=0;syncHs();
+}
+function syncHs(){const L=document.getElementById('list'),th=document.getElementById('hth');const w=L.scrollWidth||1;th.style.width=Math.min(100,L.clientWidth/w*100)+'%';th.style.left=(L.scrollLeft/w*100)+'%'}
+document.getElementById('list').addEventListener('scroll',syncHs);
+document.getElementById('hl').onclick=()=>document.getElementById('list').scrollBy({left:-520,behavior:'smooth'});
+document.getElementById('hr').onclick=()=>document.getElementById('list').scrollBy({left:520,behavior:'smooth'});
+document.getElementById('htr').onclick=e=>{const L=document.getElementById('list'),r=e.currentTarget.getBoundingClientRect();L.scrollTo({left:(e.clientX-r.left)/r.width*L.scrollWidth-L.clientWidth/2,behavior:'smooth'})};
+window.addEventListener('resize',syncHs);
+const subjSel=document.getElementById('subj');
+function fillSubj(){const cur=F.subj;subjSel.innerHTML='<option value="">Все</option>'+[...new Set(SC.map(a=>a.subject))].sort().map(v=>`<option${v===cur?' selected':''}>${v}</option>`).join('');if(!SC.some(a=>a.subject===cur))F.subj=''}
+fillSubj();
+const mgrSel=document.getElementById('mgr');mgrSel.innerHTML='<option value="">Все артикулы</option>';(DATA.managers||[]).forEach(m=>mgrSel.insertAdjacentHTML('beforeend',`<option>${m}</option>`));
+if(!(DATA.managers||[]).length)mgrSel.parentElement.hidden=true;
+mgrSel.onchange=e=>{MGR=e.target.value;recompute();fillSubj();renderAll();renderCamp();renderAssoc();renderLog();document.getElementById('h1').textContent=DATA.cabinet+(MGR?' · '+MGR:'')};
+document.querySelectorAll('.chip[data-f]').forEach(b=>b.onclick=()=>{F[b.dataset.f]=b.dataset.v;document.querySelectorAll(`.chip[data-f="${b.dataset.f}"]`).forEach(x=>x.setAttribute('aria-pressed',x===b));renderCamp()});
+subjSel.onchange=e=>{F.subj=e.target.value;renderCamp()};
+document.getElementById('minsp').onchange=e=>{F.minsp=+e.target.value;renderCamp()};
+document.getElementById('multi').onchange=e=>{F.multi=e.target.checked;renderCamp()};
+document.getElementById('q').oninput=e=>{F.q=e.target.value.trim().toLowerCase();renderCamp()};
+function tab(which){
+  ['all','camp','assoc','log'].forEach(k=>{
+    document.getElementById('p-'+k).hidden=k!==which;
+    document.getElementById('t-'+k).setAttribute('aria-selected',k===which);
+  });
+  if(which==='camp')syncHs();}
+document.getElementById('t-all').onclick=()=>tab('all');document.getElementById('t-camp').onclick=()=>tab('camp');
+document.getElementById('t-assoc').onclick=()=>tab('assoc');document.getElementById('t-log').onclick=()=>tab('log');
+document.getElementById('h1').textContent=DATA.cabinet;
+document.getElementById('foot').innerHTML=`Источник: выгрузка РНП «RNPAdv_WB» за ${DAYS[0].lbl}–${DAYS.at(-1).lbl}.2026, кабинет ${DATA.cabinet}. ДРР = расход / сумма заказов с рекламы. Маржи в выгрузке нет — ориентир ДРР 5%, цель — рост заказов. Кампании без расхода за период не показаны.${HAS_AS?' ДРР — по всем заказам с рекламы (прямые + ассоциированные), как в кабинете WB.':' <b>В выгрузке нет ассоциированных заказов — ДРР выше, чем в кабинете WB.</b>'}`;
+const root=document.documentElement;
+document.getElementById('theme').onclick=()=>{const dark=root.dataset.theme?root.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;root.dataset.theme=dark?'light':'dark'};
+renderAll();renderCamp();renderAssoc();renderLog();
+if(keepMgr&&(DATA.managers||[]).includes(keepMgr)){mgrSel.value=keepMgr;mgrSel.onchange({target:mgrSel})}
+else if(location.hash.includes('mgr')&&(DATA.managers||[]).length){mgrSel.value=DATA.managers[0];mgrSel.onchange({target:mgrSel})}
+if(location.hash.startsWith('#camp')){const m=+location.hash.slice(5);if(m){F.minsp=m;document.getElementById('minsp').value=String(m);renderCamp()}tab('camp')}
+}
+// === period picker: presets + built weeks + two-click calendar (Metric-Labs style) ===
+const wkKeys=Object.keys(WEEKS).sort();
+const pper=document.getElementById('pper'),pperBtn=document.getElementById('pperBtn'),pperLbl=document.getElementById('pperLbl'),
+      ppop=document.getElementById('ppop'),pcal=document.getElementById('pcal'),pcalTitle=document.getElementById('pcalTitle'),
+      pcalHint=document.getElementById('pcalHint'),pwks=document.getElementById('pwks');
+const ALLD=[...new Set(wkKeys.flatMap(k=>WEEKS[k].days))].sort(),DLO=ALLD[0],DHI=ALLD[ALLD.length-1];
+const wkStarts=new Set(wkKeys.map(k=>WEEKS[k].days[0]));
+const fdt2=d=>d.slice(8,10)+'.'+d.slice(5,7);
+let CURA=WEEKS[wkKeys.at(-1)].days[0],CURB=WEEKS[wkKeys.at(-1)].days[WEEKS[wkKeys.at(-1)].days.length-1];
+let calM=new Date(CURB+'T00:00:00');calM.setDate(1);
+let pend=null;
+const HINT0='Два клика: начало и конец периода. Зелёная точка — начало готовой недели.';
+function setTrig(){
+  pperLbl.textContent=fdt2(CURA)+' – '+fdt2(CURB)+'.'+CURB.slice(2,4);
+  document.querySelectorAll('.pq[data-w]').forEach(b=>{const w=WEEKS[b.dataset.w];b.classList.toggle('on',CURA===w.days[0]&&CURB===w.days[w.days.length-1])});
+  document.querySelectorAll('.pq[data-q]').forEach(b=>b.classList.toggle('on',CURB===DHI&&CURA===dshift(DHI,-(+b.dataset.q-1))));
+  const pa=document.querySelector('.pq[data-all]');if(pa)pa.classList.toggle('on',CURA===DLO&&CURB===DHI);
+}
+function closePop(){ppop.hidden=true;pend=null;pcalHint.textContent=HINT0;drawCal()}
+function applyPeriod(a,b){
+  if(b<a){const t=a;a=b;b=t}
+  if(a<DLO)a=DLO;if(b>DHI)b=DHI;
+  if(b<a)return;
+  const V=buildPeriod(a,b);if(!V)return;
+  CURA=V.days[0];CURB=V.days[V.days.length-1];
+  setTrig();closePop();
+  boot(V,document.getElementById('mgr').value);
+}
+function drawCal(){
+  const y=calM.getFullYear(),m=calM.getMonth();
+  pcalTitle.textContent=calM.toLocaleDateString('ru-RU',{month:'long',year:'numeric'});
+  const lead=(new Date(y,m,1).getDay()+6)%7,dim=new Date(y,m+1,0).getDate();
+  let h=['пн','вт','ср','чт','пт','сб','вс'].map(x=>`<span class="wd">${x}</span>`).join('');
+  for(let i=0;i<lead;i++)h+='<span></span>';
+  for(let d=1;d<=dim;d++){
+    const iso=y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    const ok=iso>=DLO&&iso<=DHI;
+    let cls='';
+    if(pend&&iso===pend)cls='pend';
+    else if(!pend&&iso>=CURA&&iso<=CURB)cls='inr';
+    if(!pend&&(iso===CURA||iso===CURB))cls+=' edge';
+    if(ok&&wkStarts.has(iso))cls+=' wkd';
+    h+=`<button type="button" class="${cls.trim()}" data-d="${iso}"${ok?'':' disabled'}>${d}</button>`;
+  }
+  pcal.innerHTML=h;
+  pcal.querySelectorAll('button[data-d]:not(:disabled)').forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    const d=b.dataset.d;
+    if(!pend){pend=d;pcalHint.textContent='Начало: '+fdt2(d)+' · выберите конец периода';drawCal();return}
+    applyPeriod(pend,d);
+  });
+}
+pperBtn.onclick=e=>{e.stopPropagation();ppop.hidden=!ppop.hidden;if(!ppop.hidden)drawCal()};
+document.addEventListener('click',e=>{if(!ppop.hidden&&!pper.contains(e.target))closePop()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!ppop.hidden)closePop()});
+document.getElementById('pcalPrev').onclick=e=>{e.stopPropagation();const t=new Date(calM);t.setMonth(t.getMonth()-1);const lo=new Date(DLO+'T00:00:00');lo.setDate(1);if(t>=lo){calM=t;drawCal()}};
+document.getElementById('pcalNext').onclick=e=>{e.stopPropagation();const t=new Date(calM);t.setMonth(t.getMonth()+1);const hi=new Date(DHI+'T00:00:00');hi.setDate(1);if(t<=hi){calM=t;drawCal()}};
+pwks.innerHTML=wkKeys.slice().reverse().map(k=>`<button type="button" class="pq" data-w="${k}">${WEEKS[k].label}</button>`).join('');
+document.querySelectorAll('.pq[data-q]').forEach(b=>b.onclick=()=>applyPeriod(dshift(DHI,-(+b.dataset.q-1)),DHI));
+{const pa=document.querySelector('.pq[data-all]');if(pa)pa.onclick=()=>applyPeriod(DLO,DHI)}
+pwks.querySelectorAll('.pq[data-w]').forEach(b=>b.onclick=()=>{const w=WEEKS[b.dataset.w];applyPeriod(w.days[0],w.days[w.days.length-1])});
+setTrig();
+boot(buildPeriod(CURA,CURB));
+</script>
+<script>window.addEventListener('message',function(e){if(e.data&&e.data.type==='ctrleads-theme'){document.documentElement.dataset.theme=e.data.mode;try{renderAll();renderCamp();renderAssoc();renderLog();}catch(_){}}});</script></body>
+</html>
